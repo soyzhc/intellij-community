@@ -61,7 +61,7 @@ public class PackageDirectoryCache {
   @NotNull
   public List<VirtualFile> getDirectoriesByPackageName(@NotNull final String packageName) {
     PackageInfo info = getPackageInfo(packageName);
-    return info == null ? Collections.emptyList() : info.myPackageDirectories;
+    return info == null ? Collections.emptyList() : Collections.unmodifiableList(info.myPackageDirectories);
   }
 
   @Nullable
@@ -126,17 +126,25 @@ public class PackageDirectoryCache {
     return Collections.unmodifiableSet(result);
   }
 
+  @NotNull
+  public static PackageDirectoryCache createCache(@NotNull List<? extends VirtualFile> roots) {
+    MultiMap<String, VirtualFile> map = MultiMap.create();
+    map.putValues("", roots);
+    return new PackageDirectoryCache(map);
+  }
+
   private class PackageInfo {
     @NotNull
     final String myQname;
     @NotNull
-    final List<VirtualFile> myPackageDirectories;
+    final List<? extends VirtualFile> myPackageDirectories;
     final NotNullLazyValue<MultiMap<String, VirtualFile>> mySubPackages = new VolatileNotNullLazyValue<MultiMap<String, VirtualFile>>() {
       @NotNull
       @Override
       protected MultiMap<String, VirtualFile> compute() {
         MultiMap<String, VirtualFile> result = MultiMap.createLinked();
         for (VirtualFile directory : myPackageDirectories) {
+          ProgressManager.checkCanceled();
           for (VirtualFile child : directory.getChildren()) {
             String childName = child.getName();
             String packageName = myQname.isEmpty() ? childName : myQname + "." + childName;
@@ -149,7 +157,7 @@ public class PackageDirectoryCache {
       }
     };
 
-    PackageInfo(@NotNull String qname, @NotNull List<VirtualFile> packageDirectories) {
+    PackageInfo(@NotNull String qname, @NotNull List<? extends VirtualFile> packageDirectories) {
       myQname = qname;
       myPackageDirectories = packageDirectories;
     }

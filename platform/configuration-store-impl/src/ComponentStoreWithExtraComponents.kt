@@ -1,6 +1,7 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
+import com.intellij.configurationStore.schemeManager.SchemeManagerFactoryBase
 import com.intellij.openapi.components.SettingsSavingComponent
 import com.intellij.project.isDirectoryBased
 
@@ -15,7 +16,7 @@ abstract class ComponentStoreWithExtraComponents : ComponentStoreImpl() {
     super.initComponent(component, isService)
   }
 
-  final override fun beforeSaveComponents(errors: MutableList<Throwable>) {
+  override fun beforeSaveComponents(errors: MutableList<Throwable>) {
     // component state uses scheme manager in an ipr project, so, we must save it before
     val isIprProject = project?.let { !it.isDirectoryBased } ?: false
     if (isIprProject) {

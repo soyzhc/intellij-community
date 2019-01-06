@@ -1,15 +1,15 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
+import com.intellij.configurationStore.schemeManager.ROOT_CONFIG
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.PathManager
-import com.intellij.openapi.components.PathMacroManager
-import com.intellij.openapi.components.StateStorageOperation
-import com.intellij.openapi.components.TrackingPathMacroSubstitutor
+import com.intellij.openapi.application.appSystemDir
+import com.intellij.openapi.components.*
 import com.intellij.openapi.components.impl.stores.FileStorageCoreUtil
-import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.util.NamedJDOMExternalizable
+import com.intellij.util.io.systemIndependentPath
 import org.jetbrains.jps.model.serialization.JpsGlobalLoader
 
 private class ApplicationPathMacroManager : PathMacroManager(null)
@@ -29,21 +29,24 @@ class ApplicationStoreImpl(private val application: Application, pathMacroManage
     // app config must be first, because collapseMacros collapse from fist to last, so, at first we must replace APP_CONFIG because it overlaps ROOT_CONFIG value
     storageManager.addMacro(APP_CONFIG, "$path/${FILE_STORAGE_DIR}")
     storageManager.addMacro(ROOT_CONFIG, path)
+    storageManager.addMacro(StoragePathMacros.CACHE_FILE, appSystemDir.resolve("workspace").resolve("app.xml").systemIndependentPath)
   }
 
   override fun saveAdditionalComponents(isForce: Boolean) {
     // here, because no Project (and so, ProjectStoreImpl) on Welcome Screen
     service<DefaultProjectExportableAndSaveTrigger>().save(isForce)
   }
+
+  override fun toString() = "app"
 }
 
-class ApplicationStorageManager(application: Application, pathMacroManager: PathMacroManager? = null)
+class ApplicationStorageManager(application: Application?, pathMacroManager: PathMacroManager? = null)
   : StateStorageManagerImpl("application", pathMacroManager?.createTrackingSubstitutor(), application) {
 
   override fun getOldStorageSpec(component: Any, componentName: String, operation: StateStorageOperation): String? =
     if (component is NamedJDOMExternalizable) "${component.externalFileName}${FileStorageCoreUtil.DEFAULT_EXT}" else DEFAULT_STORAGE_SPEC
 
-  override fun getMacroSubstitutor(fileSpec: String): TrackingPathMacroSubstitutor? =
+  override fun getMacroSubstitutor(fileSpec: String): PathMacroSubstitutor? =
     if (fileSpec == JpsGlobalLoader.PathVariablesSerializer.STORAGE_FILE_NAME) null else super.getMacroSubstitutor(fileSpec)
 
   override val isUseXmlProlog: Boolean

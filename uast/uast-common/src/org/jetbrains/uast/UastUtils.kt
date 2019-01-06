@@ -85,13 +85,15 @@ fun <T : UElement> UElement.getParentOfType(
   }
 }
 
-fun UElement?.getUCallExpression(): UCallExpression? = this?.withContainingElements?.mapNotNull {
-  when (it) {
-    is UCallExpression -> it
-    is UQualifiedReferenceExpression -> it.selector as? UCallExpression
-    else -> null
-  }
-}?.firstOrNull()
+@JvmOverloads
+fun UElement?.getUCallExpression(searchLimit: Int = Int.MAX_VALUE): UCallExpression? =
+  this?.withContainingElements?.take(searchLimit)?.mapNotNull {
+    when (it) {
+      is UCallExpression -> it
+      is UQualifiedReferenceExpression -> it.selector as? UCallExpression
+      else -> null
+    }
+  }?.firstOrNull()
 
 @Deprecated(message = "This function is deprecated, use getContainingUFile", replaceWith = ReplaceWith("getContainingUFile()"))
 fun UElement.getContainingFile(): UFile? = getContainingUFile()
@@ -114,8 +116,6 @@ fun UElement.getContainingVariable(): PsiVariable? = getContainingUVariable()?.p
 @Deprecated(message = "Useless function, will be removed in IDEA 2019.1",
             replaceWith = ReplaceWith("PsiTreeUtil.getParentOfType(this, PsiClass::class.java)"))
 fun PsiElement?.getContainingClass(): PsiClass? = this?.let { PsiTreeUtil.getParentOfType(it, PsiClass::class.java) }
-
-fun PsiElement?.findContainingUClass(): UClass? = findContaining(UClass::class.java)
 
 fun <T : UElement> PsiElement?.findContaining(clazz: Class<T>): T? {
   var element = this

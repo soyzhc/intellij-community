@@ -14,6 +14,7 @@ import com.intellij.util.EnvironmentUtil
 import com.jetbrains.python.run.PyVirtualEnvReader
 import com.jetbrains.python.run.findActivateScript
 import org.jetbrains.plugins.terminal.LocalTerminalCustomizer
+import org.jetbrains.plugins.terminal.TerminalOptionsProvider
 import java.io.File
 import javax.swing.JCheckBox
 
@@ -33,20 +34,19 @@ class PyVirtualEnvTerminalCustomizer : LocalTerminalCustomizer() {
       // in case of virtualenv sdk on unix we activate virtualenv
       val path = sdk.homePath
 
-      if (path != null) {
-
+      if (path != null && command.isNotEmpty()) {
         val shellPath = command[0]
-        val shellName = File(shellPath).name
-
-        if (shellName == "bash" || (SystemInfo.isMac && shellName == "sh") || (shellName == "zsh") ||
-            ((shellName == "fish") && PythonSdkType.isVirtualEnv(sdk))) { //fish shell works only for virtualenv and not for conda
+        if (isShellIntegrationAvailable(shellPath)) { //fish shell works only for virtualenv and not for conda
           //for bash we pass activate script to jediterm shell integration (see jediterm-bash.in) to source it there
+          //TODO: fix conda for fish
+
           findActivateScript(path, shellPath)?.let { activate ->
             val pathEnv = EnvironmentUtil.getEnvironmentMap().get("PATH")
             if (pathEnv != null) {
               envs.put("PATH", pathEnv)
             }
-            envs.put("JEDITERM_SOURCE", if (activate.second != null) "${activate.first} ${activate.second}" else activate.first)
+            envs.put("JEDITERM_SOURCE",  activate.first)
+            envs.put("JEDITERM_SOURCE_ARGS", activate.second?:"")
           }
         }
         else {
@@ -63,10 +63,16 @@ class PyVirtualEnvTerminalCustomizer : LocalTerminalCustomizer() {
       }
     }
 
-    // for some reason virtualenv isn't activated in the rcfile for the login shell, so we make it non-login
-    return command.filter { arg -> arg != "--login" && arg != "-l" }.toTypedArray()
+    return command
   }
 
+  private fun isShellIntegrationAvailable(shellPath: String) : Boolean {
+    if (TerminalOptionsProvider.instance.shellIntegration()) {
+      val shellName = File(shellPath).name
+      return shellName == "bash" || (SystemInfo.isMac && shellName == "sh") || shellName == "zsh" || shellName == "fish"
+    }
+    return false
+  }
 
   private fun findSdk(project: Project): Sdk? {
     for (m in ModuleManager.getInstance(project).modules) {

@@ -38,6 +38,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
+import com.intellij.remote.ProcessControlWithMappings;
 import com.intellij.remote.RemoteProcessControl;
 import com.intellij.util.PlatformUtils;
 import com.jetbrains.python.PythonHelpersLocator;
@@ -161,9 +162,9 @@ public abstract class PythonCommandLineState extends CommandLineState {
 
   protected void addTracebackFilter(Project project, ConsoleView consoleView, ProcessHandler processHandler) {
     if (PySdkUtil.isRemote(myConfig.getSdk())) {
-      assert processHandler instanceof RemoteProcessControl;
+      assert processHandler instanceof ProcessControlWithMappings;
       consoleView
-        .addMessageFilter(new PyRemoteTracebackFilter(project, myConfig.getWorkingDirectory(), (RemoteProcessControl)processHandler));
+        .addMessageFilter(new PyRemoteTracebackFilter(project, myConfig.getWorkingDirectory(), (ProcessControlWithMappings)processHandler));
     }
     else {
       consoleView.addMessageFilter(new PythonTracebackFilter(project, myConfig.getWorkingDirectorySafe()));
@@ -213,13 +214,13 @@ public abstract class PythonCommandLineState extends CommandLineState {
     GeneralCommandLine commandLine = generateCommandLine(patchers);
 
     // Extend command line
-    PythonRunConfigurationExtensionsManager.getInstance()
+    PythonRunConfigurationExtensionsManager.Companion.getInstance()
       .patchCommandLine(myConfig, getRunnerSettings(), commandLine, getEnvironment().getRunner().getRunnerId());
 
     ProcessHandler processHandler = processStarter.start(myConfig, commandLine);
 
     // attach extensions
-    PythonRunConfigurationExtensionsManager.getInstance().attachExtensionsToProcess(myConfig, processHandler, getRunnerSettings());
+    PythonRunConfigurationExtensionsManager.Companion.getInstance().attachExtensionsToProcess(myConfig, processHandler, getRunnerSettings());
 
     return processHandler;
   }
@@ -383,7 +384,7 @@ public abstract class PythonCommandLineState extends CommandLineState {
       for (Map.Entry<String, String> e : myConfig.getEnvs().entrySet()) {
         if (environment.containsKey(e.getKey())) {
           if ("PATH".equals(e.getKey())) {
-            env.put(e.getKey(), PythonEnvUtil.appendToPathEnvVar(env.get("PATH"), e.getValue()));
+            env.put(e.getKey(), PythonEnvUtil.addToPathEnvVar(env.get("PATH"), e.getValue(), true));
           }
           else {
             env.put(e.getKey(), e.getValue());

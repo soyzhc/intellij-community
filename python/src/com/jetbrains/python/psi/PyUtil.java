@@ -31,6 +31,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.roots.impl.FilePropertyPusher;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
@@ -43,12 +44,14 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.psi.*;
 import com.intellij.psi.stubs.StubElement;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.*;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.NotNullPredicate;
 import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.codeInsight.completion.OverwriteEqualsInsertHandler;
@@ -592,7 +595,7 @@ public class PyUtil {
   }
 
   @NotNull
-  public static <E extends ResolveResult> List<E> filterTopPriorityResults(@NotNull List<E> resolveResults) {
+  public static <E extends ResolveResult> List<E> filterTopPriorityResults(@NotNull List<? extends E> resolveResults) {
     if (resolveResults.isEmpty()) return Collections.emptyList();
 
     final int maxRate = getMaxRate(resolveResults);
@@ -662,6 +665,11 @@ public class PyUtil {
     return guessLanguageLevelWithCaching(project);
   }
 
+  @NotNull
+  public static LanguageLevel getLanguageLevelForModule(@NotNull Module module) {
+    return FilePropertyPusher.EP_NAME.findExtensionOrFail(PythonLanguageLevelPusher.class).getImmediateValue(module);
+  }
+
   public static void invalidateLanguageLevelCache(@NotNull Project project) {
     project.putUserData(PythonLanguageLevelPusher.PYTHON_LANGUAGE_LEVEL, null);
   }
@@ -709,7 +717,6 @@ public class PyUtil {
    * @return expression casted to appropriate type (if could be casted). Null otherwise.
    */
   @Nullable
-  @SuppressWarnings("unchecked")
   public static <T> T as(@Nullable final Object expression, @NotNull final Class<T> clazz) {
     return ObjectUtils.tryCast(expression, clazz);
   }
@@ -745,7 +752,7 @@ public class PyUtil {
    * @return list of elements of expected element type
    */
   @NotNull
-  public static <T> List<T> asList(@Nullable final Collection<?> expression, @NotNull final Class<T> elementClass) {
+  public static <T> List<T> asList(@Nullable final Collection<?> expression, @NotNull final Class<? extends T> elementClass) {
     if ((expression == null) || expression.isEmpty()) {
       return Collections.emptyList();
     }
@@ -829,7 +836,7 @@ public class PyUtil {
    * @see ApplicationImpl#runProcessWithProgressSynchronously(Runnable, String, boolean, Project, JComponent, String)
    */
   public static void runWithProgress(@Nullable Project project, @Nls(capitalization = Nls.Capitalization.Title) @NotNull String title,
-                                     boolean modal, boolean canBeCancelled, @NotNull final Consumer<ProgressIndicator> function) {
+                                     boolean modal, boolean canBeCancelled, @NotNull final Consumer<? super ProgressIndicator> function) {
     if (modal) {
       ProgressManager.getInstance().run(new Task.Modal(project, title, canBeCancelled) {
         @Override
@@ -897,7 +904,7 @@ public class PyUtil {
    * @see PsiDocumentManager#commitDocument(Document)
    * @see #updateDocumentUnblockedAndCommitted(PsiElement, Function)
    */
-  public static void updateDocumentUnblockedAndCommitted(@NotNull PsiElement anchor, @NotNull Consumer<Document> consumer) {
+  public static void updateDocumentUnblockedAndCommitted(@NotNull PsiElement anchor, @NotNull Consumer<? super Document> consumer) {
     updateDocumentUnblockedAndCommitted(anchor, document -> {
       consumer.consume(document);
       return null;
@@ -905,7 +912,7 @@ public class PyUtil {
   }
 
   @Nullable
-  public static <T> T updateDocumentUnblockedAndCommitted(@NotNull PsiElement anchor, @NotNull Function<Document, T> func) {
+  public static <T> T updateDocumentUnblockedAndCommitted(@NotNull PsiElement anchor, @NotNull Function<? super Document, ? extends T> func) {
     final PsiDocumentManager manager = PsiDocumentManager.getInstance(anchor.getProject());
     final Document document = manager.getDocument(anchor.getContainingFile());
     if (document != null) {
@@ -1203,15 +1210,6 @@ public class PyUtil {
       }
     }
     return null;
-  }
-
-  /**
-   * @deprecated This method will be removed in 2018.3.
-   */
-  @Nullable
-  @Deprecated
-  public static List<String> getStringListFromTargetExpression(PyTargetExpression attr) {
-    return strListValue(attr.findAssignedValue());
   }
 
   @Nullable
@@ -1894,7 +1892,7 @@ public class PyUtil {
     }
 
     final PyElementGenerator generator = PyElementGenerator.getInstance(function.getProject());
-    final PyDecoratorList newDecorators = generator.createDecoratorList(decoTexts.toArray(ArrayUtil.EMPTY_STRING_ARRAY));
+    final PyDecoratorList newDecorators = generator.createDecoratorList(ArrayUtil.toStringArray(decoTexts));
 
     if (currentDecorators != null) {
       currentDecorators.replace(newDecorators);
@@ -1914,14 +1912,16 @@ public class PyUtil {
     private final TextRange myContentRange;
 
     public StringNodeInfo(@NotNull ASTNode node) {
-      if (!PyTokenTypes.STRING_NODES.contains(node.getElementType())) {
-        throw new IllegalArgumentException("Node must be valid Python string literal token, but " + node.getElementType() + " was given");
+      final IElementType nodeType = node.getElementType();
+      // TODO Migrate to newer PyStringElement API
+      if (!PyTokenTypes.STRING_NODES.contains(nodeType) && nodeType != PyElementTypes.FSTRING_NODE) {
+        throw new IllegalArgumentException("Node must be valid Python string literal token, but " + nodeType + " was given");
       }
       myNode = node;
       final String nodeText = node.getText();
-      final int prefixLength = PyStringLiteralExpressionImpl.getPrefixLength(nodeText);
+      final int prefixLength = PyStringLiteralUtil.getPrefixLength(nodeText);
       myPrefix = nodeText.substring(0, prefixLength);
-      myContentRange = PyStringLiteralExpressionImpl.getNodeTextRange(nodeText);
+      myContentRange = PyStringLiteralUtil.getContentRange(nodeText);
       myQuote = nodeText.substring(prefixLength, myContentRange.getStartOffset());
     }
 
@@ -2040,7 +2040,7 @@ public class PyUtil {
     private IterHelper() {}
 
     @Nullable
-    public static PsiNamedElement findName(Iterable<PsiNamedElement> it, String name) {
+    public static PsiNamedElement findName(Iterable<? extends PsiNamedElement> it, String name) {
       PsiNamedElement ret = null;
       for (PsiNamedElement elt : it) {
         if (elt != null) {

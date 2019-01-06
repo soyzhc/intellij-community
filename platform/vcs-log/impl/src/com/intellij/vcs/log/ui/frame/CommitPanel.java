@@ -57,12 +57,12 @@ public class CommitPanel extends JBPanel {
   @NotNull private final RootPanel myRootPanel;
   @NotNull private final BranchesPanel myContainingBranchesPanel;
   @NotNull private final VcsLogColorManager myColorManager;
-  @NotNull private final Consumer<CommitId> myNavigate;
+  @NotNull private final Consumer<? super CommitId> myNavigate;
 
   @Nullable private CommitId myCommit;
   @Nullable private CommitPresentationUtil.CommitPresentation myPresentation;
 
-  public CommitPanel(@NotNull VcsLogData logData, @NotNull VcsLogColorManager colorManager, @NotNull Consumer<CommitId> navigate) {
+  public CommitPanel(@NotNull VcsLogData logData, @NotNull VcsLogColorManager colorManager, @NotNull Consumer<? super CommitId> navigate) {
     myLogData = logData;
     myColorManager = colorManager;
     myNavigate = navigate;
@@ -109,7 +109,7 @@ public class CommitPanel extends JBPanel {
     myContainingBranchesPanel.setBranches(branches);
   }
 
-  public void setRefs(@NotNull Collection<VcsRef> refs) {
+  public void setRefs(@NotNull Collection<? extends VcsRef> refs) {
     List<VcsRef> references = sortRefs(refs);
     myBranchesPanel.setReferences(ContainerUtil.filter(references, ref -> ref.getType().isBranch()));
     myTagsPanel.setReferences(ContainerUtil.filter(references, ref -> !ref.getType().isBranch()));
@@ -143,7 +143,7 @@ public class CommitPanel extends JBPanel {
   }
 
   @NotNull
-  private List<VcsRef> sortRefs(@NotNull Collection<VcsRef> refs) {
+  private List<VcsRef> sortRefs(@NotNull Collection<? extends VcsRef> refs) {
     VcsRef ref = ContainerUtil.getFirstItem(refs);
     if (ref == null) return ContainerUtil.emptyList();
     return ContainerUtil.sorted(refs, myLogData.getLogProvider(ref.getRoot()).getReferenceManager().getLabelsOrderComparator());

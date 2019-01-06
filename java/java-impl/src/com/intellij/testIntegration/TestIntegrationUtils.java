@@ -70,12 +70,14 @@ public class TestIntegrationUtils {
         return null;
       }
     };
+    @NotNull
     private final String myDefaultName;
 
-    MethodKind(String defaultName) {
+    MethodKind(@NotNull String defaultName) {
       myDefaultName = defaultName;
     }
 
+    @NotNull
     public String getDefaultName() {
       return myDefaultName;
     }
@@ -111,7 +113,14 @@ public class TestIntegrationUtils {
 
   public static List<MemberInfo> extractClassMethods(PsiClass clazz, boolean includeInherited) {
     List<MemberInfo> result = new ArrayList<>();
-    Set<PsiClass> classes = includeInherited ? InheritanceUtil.getSuperClasses(clazz) : Collections.singleton(clazz);
+    Set<PsiClass> classes;
+    if (includeInherited) {
+      classes = InheritanceUtil.getSuperClasses(clazz);
+      classes.add(clazz);
+    }
+    else {
+      classes = Collections.singleton(clazz);
+    }
     for (PsiClass aClass : classes) {
       if (CommonClassNames.JAVA_LANG_OBJECT.equals(aClass.getQualifiedName())) continue;
       MemberInfo.extractClassMembers(aClass, result, new MemberInfo.Filter<PsiMember>() {
@@ -133,7 +142,7 @@ public class TestIntegrationUtils {
                                            final PsiClass targetClass,
                                            final PsiMethod method,
                                            @Nullable String name,
-                                           boolean automatic, Set<String> existingNames) {
+                                           boolean automatic, Set<? super String> existingNames) {
     runTestMethodTemplate(methodKind, framework, editor, targetClass, null, method, name, automatic, existingNames);
   }
 
@@ -145,7 +154,7 @@ public class TestIntegrationUtils {
                                            final PsiMethod method,
                                            @Nullable String name,
                                            boolean automatic,
-                                           Set<String> existingNames) {
+                                           Set<? super String> existingNames) {
     runTestMethodTemplate(editor, targetClass, method, automatic,
                           createTestMethodTemplate(methodKind, framework, targetClass, sourceClass, name, automatic, existingNames));
   }
@@ -195,7 +204,7 @@ public class TestIntegrationUtils {
                                                   @NotNull PsiClass targetClass,
                                                   @Nullable String name,
                                                   boolean automatic,
-                                                  Set<String> existingNames) {
+                                                  Set<? super String> existingNames) {
     return createTestMethodTemplate(methodKind, descriptor, targetClass, null, name, automatic, existingNames);
   }
 
@@ -205,7 +214,7 @@ public class TestIntegrationUtils {
                                                   @Nullable PsiClass sourceClass,
                                                   @Nullable String name,
                                                   boolean automatic,
-                                                  Set<String> existingNames) {
+                                                  Set<? super String> existingNames) {
     FileTemplateDescriptor templateDesc = methodKind.getFileTemplateDescriptor(descriptor);
     String templateName = templateDesc.getFileName();
     FileTemplate fileTemplate = FileTemplateManager.getInstance(targetClass.getProject()).getCodeTemplate(templateName);

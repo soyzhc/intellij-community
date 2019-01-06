@@ -45,8 +45,8 @@ public class FileHistoryUtil {
   }
 
   @NotNull
-  static List<Change> collectRelevantChanges(@NotNull VcsFullCommitDetails details,
-                                             @NotNull Condition<Change> isRelevant) {
+  public static List<Change> collectRelevantChanges(@NotNull VcsFullCommitDetails details,
+                                                    @NotNull Condition<? super Change> isRelevant) {
     List<Change> changes = filter(details.getChanges(), isRelevant);
     if (!changes.isEmpty()) return changes;
     if (details.getParents().size() > 1) {
@@ -64,7 +64,7 @@ public class FileHistoryUtil {
     return file.equals(revision.getFile());
   }
 
-  static boolean affectsDirectory(@NotNull Change change, @NotNull FilePath directory) {
+  public static boolean affectsDirectory(@NotNull Change change, @NotNull FilePath directory) {
     FilePath file = notNull(chooseNotNull(change.getAfterRevision(), change.getBeforeRevision())).getFile();
     return VfsUtilCore.isAncestor(directory.getIOFile(), file.getIOFile(), false);
   }
@@ -89,8 +89,9 @@ public class FileHistoryUtil {
     }
 
     List<Hash> parentHashes = map(parentCommits, c -> logData.getCommitId(c).getHash());
-    List<Change> parentChanges = map2List(toCollection(zip(parentCommits, parentHashes)), parent -> {
+    List<Change> parentChanges = mapNotNull(toCollection(zip(parentCommits, parentHashes)), parent -> {
       ContentRevision beforeRevision = createContentRevision(parent.second, parent.first, visiblePack, diffHandler);
+      if (afterRevision == null && beforeRevision == null) return null;
       return new Change(beforeRevision, afterRevision);
     });
     if (parentChanges.size() <= 1) {

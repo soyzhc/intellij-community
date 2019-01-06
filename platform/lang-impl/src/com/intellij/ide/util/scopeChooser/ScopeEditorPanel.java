@@ -131,8 +131,10 @@ public class ScopeEditorPanel {
 
       @Override
       public void focusLost(FocusEvent e) {
-        myPositionPanel.setVisible(false);
-        myPanel.revalidate();
+        if (!myPatternField.getEditorField().isExpanded()) {
+          myPositionPanel.setVisible(false);
+          myPanel.revalidate();
+        }
       }
     });
 
@@ -647,7 +649,7 @@ public class ScopeEditorPanel {
         PackageDependenciesNode node = (PackageDependenciesNode)value;
         setIcon(node.getIcon());
 
-        setForeground(selected && hasFocus ? UIUtil.getTreeSelectionForeground() : UIUtil.getTreeForeground());
+        setForeground(UIUtil.getTreeForeground(selected, hasFocus));
         if (!(selected && hasFocus) && node.hasMarked() && !DependencyUISettings.getInstance().UI_FILTER_LEGALS) {
           setForeground(node.hasUnmarked() ? PARTIAL_INCLUDED : WHOLE_INCLUDED);
         }
@@ -660,7 +662,7 @@ public class ScopeEditorPanel {
     }
   }
 
-  private final class ChooseScopeTypeAction extends ComboBoxAction{
+  private static final class ChooseScopeTypeAction extends ComboBoxAction{
     private final Runnable myUpdate;
 
     ChooseScopeTypeAction(final Runnable update) {

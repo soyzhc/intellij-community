@@ -2,8 +2,10 @@
 package com.intellij.vcs.log.history
 
 import com.intellij.openapi.util.Couple
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vcs.FilePath
 import com.intellij.openapi.vcs.LocalFilePath
+import com.intellij.util.containers.MultiMap
 import com.intellij.vcs.log.data.index.VcsLogPathsIndex
 import com.intellij.vcs.log.data.index.VcsLogPathsIndex.ChangeKind.*
 import com.intellij.vcs.log.graph.TestGraphBuilder
@@ -13,9 +15,10 @@ import com.intellij.vcs.log.graph.asTestGraphString
 import com.intellij.vcs.log.graph.graph
 import com.intellij.vcs.log.graph.impl.facade.BaseController
 import com.intellij.vcs.log.graph.impl.facade.FilteredController
+import gnu.trove.THashMap
 import gnu.trove.TIntObjectHashMap
 import org.junit.Assert
-import org.junit.Ignore
+import org.junit.Assume.assumeFalse
 import org.junit.Test
 
 class FileHistoryTest {
@@ -157,10 +160,7 @@ class FileHistoryTest {
 
   /**
    * Rename happens in one branch, while the other branch only consists of couple of trivial merge commits.
-   * Refiner walks to the trivial branch first instead of meaningful branch and because of this misses the rename completely.
-   * Solution would be to drop trivial merges before refining and always walk to the NOT_CHANGED branch.
    */
-  @Ignore
   @Test
   fun historyWithUndetectedRename() {
     val after = LocalFilePath("after.txt", false)
@@ -203,7 +203,7 @@ class FileHistoryTest {
   }
 
   @Test
-  fun cyclicHistoryTest() {
+  fun historyWithCyclicRenames() {
     val aFile = LocalFilePath("a.txt", false)
     val bFile = LocalFilePath("b.txt", false)
     val fileNamesData = FileNamesDataBuilder(aFile)
@@ -228,14 +228,175 @@ class FileHistoryTest {
       4()
     }
   }
+
+  @Test
+  fun historyWithCyclicCaseOnlyRenames() {
+    assumeFalse("Case insensitive fs is required", SystemInfo.isFileSystemCaseSensitive)
+
+    val lowercasePath = LocalFilePath("file.txt", false)
+    val uppercasePath = LocalFilePath("FILE.TXT", false)
+    val mixedPath = LocalFilePath("FiLe.TxT", false)
+    val fileNamesData = FileNamesDataBuilder(lowercasePath)
+      .addChange(lowercasePath, 7, listOf(ADDED), listOf(7))
+      .addChange(lowercasePath, 6, listOf(MODIFIED), listOf(7))
+
+      .addChange(lowercasePath, 5, listOf(REMOVED), listOf(6))
+      .addChange(mixedPath, 5, listOf(ADDED), listOf(6))
+      .addRename(6, 5, lowercasePath, mixedPath)
+
+      .addChange(mixedPath, 4, listOf(MODIFIED), listOf(5))
+
+      .addChange(mixedPath, 3, listOf(REMOVED), listOf(4))
+      .addChange(uppercasePath, 3, listOf(ADDED), listOf(4))
+      .addRename(4, 3, mixedPath, uppercasePath)
+
+      .addChange(uppercasePath, 2, listOf(MODIFIED), listOf(3))
+
+      .addChange(uppercasePath, 1, listOf(REMOVED), listOf(2))
+      .addChange(lowercasePath, 1, listOf(ADDED), listOf(2))
+      .addRename(2, 1, uppercasePath, lowercasePath)
+
+      .build()
+
+    graph {
+      0(1)
+      1(2)
+      2(3)
+      3(4)
+      4(5)
+      5(6)
+      6(7)
+      7()
+    }.assert(0, lowercasePath, fileNamesData) {
+      1(2)
+      2(3)
+      3(4)
+      4(5)
+      5(6)
+      6(7)
+      7()
+    }
+  }
+
+  /*
+   * Two file histories: `create initialFile.txt, rename to file.txt, rename to otherFile.txt` and some time later `create file.txt`
+   */
+  @Test
+  fun twoFileByTheSameName() {
+    val file = LocalFilePath("file.txt", false)
+    val otherFile = LocalFilePath("otherFile.txt", false)
+    val initialFile = LocalFilePath("initialFile.txt", false)
+    val fileNamesData = FileNamesDataBuilder(file)
+      .addChange(file, 0, listOf(MODIFIED), listOf(1))
+      .addChange(otherFile, 1, listOf(MODIFIED), listOf(2))
+      .addChange(file, 2, listOf(ADDED), listOf(3))
+      .addChange(otherFile, 3, listOf(ADDED), listOf(4))
+      .addChange(file, 3, listOf(REMOVED), listOf(4))
+      .addRename(4, 3, file, otherFile)
+      .addChange(file, 5, listOf(ADDED), listOf(6))
+      .addChange(initialFile, 5, listOf(REMOVED), listOf(6))
+      .addRename(6, 5, initialFile, file)
+      .addChange(initialFile, 6, listOf(ADDED), listOf(6))
+      .build()
+
+    graph {
+      0(1)
+      1(2)
+      2(3)
+      3(4)
+      4(5)
+      5(6)
+      6()
+    }.assert(0, file, fileNamesData) {
+      0(2.dot)
+      2()
+    }
+  }
+
+  @Test
+  fun revertedDeletion() {
+    val file = LocalFilePath("file.txt", false)
+    val renamedFile = LocalFilePath("renamedFile.txt", false)
+    val fileNamesData = FileNamesDataBuilder(file)
+      .addChange(renamedFile, 0, listOf(ADDED), listOf(1))
+      .addChange(file, 0, listOf(REMOVED), listOf(1))
+      .addRename(1, 0, file, renamedFile)
+      .addChange(file, 1, listOf(ADDED), listOf(2))
+      .addChange(file, 3, listOf(REMOVED), listOf(4))
+      .addChange(file, 4, listOf(MODIFIED), listOf(5))
+      .addChange(file, 5, listOf(ADDED), listOf(6))
+      .build()
+
+    graph {
+      0(1)
+      1(2)
+      2(3)
+      3(4)
+      4(5)
+      5(6)
+      6()
+    }.assert(0, renamedFile, fileNamesData) {
+      0(1)
+      1(3.dot)
+      3(4)
+      4(5)
+      5()
+    }
+  }
+
+
+  @Test
+  fun modifyRenameConflict() {
+    val file = LocalFilePath("file.txt", false)
+    val renamedFile = LocalFilePath("renamedFile.txt", false)
+
+    val fileNamesData = FileNamesDataBuilder(file)
+      .addChange(renamedFile, 0, listOf(MODIFIED), listOf(1))
+
+      .addChange(renamedFile, 1, listOf(MODIFIED, ADDED), listOf(3, 2))
+      .addChange(file, 1, listOf(NOT_CHANGED, REMOVED), listOf(3, 2))
+      .addRename(2, 1, file, renamedFile)
+
+      .addChange(file, 2, listOf(MODIFIED), listOf(5))
+
+      .addChange(renamedFile, 4, listOf(ADDED), listOf(5))
+      .addChange(file, 4, listOf(REMOVED), listOf(5))
+      .addRename(5, 4, file, renamedFile)
+
+      .addChange(file, 5, listOf(MODIFIED), listOf(6))
+      .addChange(file, 6, listOf(ADDED), listOf(6))
+      .build()
+
+    // in order to trigger the bug, parent commits for node 1 in the filtered graph should be in the different order
+    // than in the permanent graph
+    // this is achieved by filtering out node 3, since in the filtered graph usual edges go first, and only then dotted edges
+
+    graph {
+      0(1)
+      1(3, 2)
+      2(5)
+      3(4)
+      4(5)
+      5(6)
+      6()
+    }.assert(0, renamedFile, fileNamesData) {
+      0(1)
+      1(4.dot, 2.u)
+      2(5)
+      4(5)
+      5(6)
+      6()
+    }
+  }
 }
 
 private class FileNamesDataBuilder(private val path: FilePath) {
-  private val commitsMap: MutableMap<FilePath, TIntObjectHashMap<TIntObjectHashMap<VcsLogPathsIndex.ChangeKind>>> = mutableMapOf()
-  private val renamesMap: MutableMap<Couple<Int>, Couple<FilePath>> = mutableMapOf()
+  private val commitsMap: MutableMap<FilePath, TIntObjectHashMap<TIntObjectHashMap<VcsLogPathsIndex.ChangeKind>>> =
+    THashMap(FILE_PATH_HASHING_STRATEGY)
+  private val renamesMap: MultiMap<Couple<Int>, Couple<FilePath>> = MultiMap.createSmart()
 
   fun addRename(parent: Int, child: Int, beforePath: FilePath, afterPath: FilePath): FileNamesDataBuilder {
-    renamesMap[Couple(parent, child)] = Couple(beforePath, afterPath)
+    renamesMap.putValue(Couple(parent, child), Couple(beforePath, afterPath))
     return this
   }
 
@@ -247,7 +408,7 @@ private class FileNamesDataBuilder(private val path: FilePath) {
   fun build(): FileNamesData {
     return object : FileNamesData(path) {
       override fun findRename(parent: Int, child: Int, accept: (Couple<FilePath>) -> Boolean): Couple<FilePath>? {
-        return renamesMap[Couple(parent, child)]
+        return renamesMap[Couple(parent, child)].find { accept(it) }
       }
 
       override fun getAffectedCommits(path: FilePath): TIntObjectHashMap<TIntObjectHashMap<VcsLogPathsIndex.ChangeKind>> {

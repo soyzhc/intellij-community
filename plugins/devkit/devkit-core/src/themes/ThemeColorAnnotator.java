@@ -13,7 +13,6 @@ import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
-import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
@@ -32,7 +31,7 @@ import java.awt.*;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
-public class ThemeColorAnnotator implements Annotator, DumbAware {
+public class ThemeColorAnnotator implements Annotator {
   private static final Pattern COLOR_HEX_PATTERN_RGB = Pattern.compile("^#([A-Fa-f0-9]{6})$");
   private static final Pattern COLOR_HEX_PATTERN_RGBA = Pattern.compile("^#([A-Fa-f0-9]{8})$");
   private static final int HEX_COLOR_LENGTH_RGB = 7;
@@ -102,13 +101,15 @@ public class ThemeColorAnnotator implements Annotator, DumbAware {
           Color currentColor = getColor(myColorHex);
           if (currentColor == null) return;
 
-          Color newColor = ColorChooser.chooseColor(editor.getComponent(),
+          boolean withAlpha = isRgbaColorHex(myColorHex);
+          Color newColor = ColorChooser.chooseColor(editor.getProject(),
+                                                    editor.getComponent(),
                                                     DevKitBundle.message("theme.choose.color.dialog.title"),
                                                     currentColor,
-                                                    isRgbaColorHex(myColorHex));
+                                                    withAlpha);
           if (newColor == null || newColor.equals(currentColor)) return;
 
-          String newColorHex = "#" + ColorUtil.toHex(newColor, true);
+          String newColorHex = "#" + ColorUtil.toHex(newColor, withAlpha);
           Project project = myLiteral.getProject();
           JsonStringLiteral newLiteral = new JsonElementGenerator(project).createStringLiteral(newColorHex);
 

@@ -6,6 +6,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.SdkModificator;
@@ -15,9 +16,12 @@ import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.vcs.VcsConfiguration;
+import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
+import com.intellij.project.ProjectKt;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.ModuleTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
@@ -28,6 +32,8 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Collections;
 
 /**
  * @author dsl
@@ -41,7 +47,7 @@ public class RootsChangedTest extends ModuleTestCase {
 
     getOrCreateProjectBaseDir();
     MessageBusConnection connection = myProject.getMessageBus().connect(getTestRootDisposable());
-    myModuleRootListener = new MyModuleRootListener();
+    myModuleRootListener = new MyModuleRootListener(myProject);
     connection.subscribe(ProjectTopics.PROJECT_ROOTS, myModuleRootListener);
   }
 
@@ -83,7 +89,7 @@ public class RootsChangedTest extends ModuleTestCase {
 
     // when the existing root is renamed, it remains a root
     rename(vDir2, "dir2");
-    assertEventsCount(0);
+    assertNoEvents();
     assertSameElements(ModuleRootManager.getInstance(moduleA).getContentRoots(), vDir2);
  
     // and event if it is moved, it's still a root
@@ -131,7 +137,7 @@ public class RootsChangedTest extends ModuleTestCase {
         throw new RuntimeException(e);
       }
       ProjectJdkTable.getInstance().addJdk(jdk, getTestRootDisposable());
-      assertEventsCount(0);
+      assertNoEvents();
 
       ModuleRootModificationUtil.setModuleSdk(a, jdk);
       assertEventsCount(1);
@@ -159,7 +165,7 @@ public class RootsChangedTest extends ModuleTestCase {
         throw new RuntimeException(e);
       }
       ProjectJdkTable.getInstance().addJdk(jdk, getTestRootDisposable());
-      assertEventsCount(0);
+      assertNoEvents();
 
       final ModifiableRootModel rootModelA = ModuleRootManager.getInstance(moduleA).getModifiableModel();
       final ModifiableRootModel rootModelB = ModuleRootManager.getInstance(moduleB).getModifiableModel();
@@ -188,7 +194,7 @@ public class RootsChangedTest extends ModuleTestCase {
       try {
         jdk = (Sdk)IdeaTestUtil.getMockJdk17("AAA").clone();
         ProjectJdkTable.getInstance().addJdk(jdk, getTestRootDisposable());
-        assertEventsCount(0);
+        assertNoEvents();
 
         jdkBBB = (Sdk)IdeaTestUtil.getMockJdk17("BBB").clone();
       }
@@ -196,10 +202,10 @@ public class RootsChangedTest extends ModuleTestCase {
         throw new RuntimeException(e);
       }
       ProjectJdkTable.getInstance().addJdk(jdk, getTestRootDisposable());
-      assertEventsCount(0);
+      assertNoEvents();
 
       ProjectRootManager.getInstance(myProject).setProjectSdk(jdkBBB);
-      assertEventsCount(0);
+      assertNoEvents(true);
 
       final ModifiableRootModel rootModelA = ModuleRootManager.getInstance(moduleA).getModifiableModel();
       final ModifiableRootModel rootModelB = ModuleRootManager.getInstance(moduleB).getModifiableModel();
@@ -229,7 +235,7 @@ public class RootsChangedTest extends ModuleTestCase {
       final Library.ModifiableModel libraryModifiableModel = libraryA.getModifiableModel();
       libraryModifiableModel.addRoot("file:///a", OrderRootType.CLASSES);
       libraryModifiableModel.commit();
-      assertEventsCount(0);
+      assertNoEvents();
 
       final ModifiableRootModel rootModelA = ModuleRootManager.getInstance(moduleA).getModifiableModel();
       final ModifiableRootModel rootModelB = ModuleRootManager.getInstance(moduleB).getModifiableModel();
@@ -283,7 +289,7 @@ public class RootsChangedTest extends ModuleTestCase {
       final Library.ModifiableModel libraryModifiableModel = libraryA.getModifiableModel();
       libraryModifiableModel.addRoot("file:///a", OrderRootType.CLASSES);
       libraryModifiableModel.commit();
-      assertEventsCount(0);
+      assertNoEvents();
 
       final ModifiableRootModel rootModelA = ModuleRootManager.getInstance(moduleA).getModifiableModel();
       final ModifiableRootModel rootModelB = ModuleRootManager.getInstance(moduleB).getModifiableModel();
@@ -292,17 +298,17 @@ public class RootsChangedTest extends ModuleTestCase {
       final Library.ModifiableModel libraryModifiableModel2 = libraryA.getModifiableModel();
       libraryModifiableModel2.addRoot("file:///b", OrderRootType.CLASSES);
       libraryModifiableModel2.commit();
-      assertEventsCount(0);
+      assertNoEvents();
 
       libraryTable.removeLibrary(libraryA);
-      assertEventsCount(0);
+      assertNoEvents(true);
 
       rootModelA.addInvalidLibrary("Q", libraryTable.getTableLevel());
       rootModelB.addInvalidLibrary("Q", libraryTable.getTableLevel());
-      assertEventsCount(0);
+      assertNoEvents();
 
       final Library libraryQ = libraryTable.createLibrary("Q");
-      assertEventsCount(0);
+      assertNoEvents(true);
 
       ModifiableRootModel[] rootModels = {rootModelA, rootModelB};
       ModifiableModelCommitter.multiCommit(rootModels, ModuleManager.getInstance(rootModels[0].getProject()).getModifiableModel());
@@ -313,17 +319,42 @@ public class RootsChangedTest extends ModuleTestCase {
     });
   }
 
+  private void assertNoEvents() {
+    assertNoEvents(false);
+  }
+
+  private void assertNoEvents(boolean modificationCountMustBeIncremented) {
+    assertEventsCountAndIncrementModificationCount(0, modificationCountMustBeIncremented);
+  }
+
   private void assertEventsCount(int count) {
+    assertEventsCountAndIncrementModificationCount(count, count != 0);
+  }
+
+  private void assertEventsCountAndIncrementModificationCount(int eventsCount, boolean modificationCountMustBeIncremented) {
     final int beforeCount = myModuleRootListener.beforeCount;
     final int afterCount = myModuleRootListener.afterCount;
     assertEquals("beforeCount = " + beforeCount + ", afterCount = " + afterCount, beforeCount, afterCount);
-    assertEquals(count, beforeCount);
+    assertEquals(eventsCount, beforeCount);
+    long currentModificationCount = ProjectRootManager.getInstance(myProject).getModificationCount();
+    if (modificationCountMustBeIncremented) {
+      assertTrue(currentModificationCount > myModuleRootListener.modificationCount);
+    }
+    else {
+      assertEquals(myModuleRootListener.modificationCount, currentModificationCount);
+    }
     myModuleRootListener.reset();
   }
 
   private static class MyModuleRootListener implements ModuleRootListener {
+    private final Project myProject;
     private int beforeCount;
     private int afterCount;
+    private long modificationCount;
+
+    MyModuleRootListener(Project project) {
+      myProject = project;
+    }
 
     @Override
     public void beforeRootsChange(@NotNull ModuleRootEvent event) {
@@ -338,6 +369,7 @@ public class RootsChangedTest extends ModuleTestCase {
     private void reset() {
       beforeCount = 0;
       afterCount = 0;
+      modificationCount = ProjectRootManager.getInstance(myProject).getModificationCount();
     }
   }
 
@@ -356,5 +388,33 @@ public class RootsChangedTest extends ModuleTestCase {
         rename(xxx, dirName);
       }
     }).assertTiming();
+  }
+
+  @NotNull
+  @Override
+  protected Path getProjectDirOrFile() {
+    // create ".idea" - based project because it's 1) needed for testShelveChangesMustNotLeadToRootsChangedEvent and 2) is more common
+    return getProjectDirOrFile(true);
+  }
+
+  public void testShelveChangesMustNotLeadToRootsChangedEvent() {
+    ProjectKt.getStateStore(getProject()).save(Collections.emptyList(), false); // create .idea
+    VirtualFile shelf = createChildDirectory(getProject().getProjectFile().getParent(), "shelf");
+
+    myModuleRootListener.reset();
+
+    VirtualFile xxx = createChildData(shelf, "shelf1.dat");
+    assertTrue(ChangeListManager.getInstance(myProject).isPotentiallyIgnoredFile(xxx));
+
+    assertEquals(myModuleRootListener.modificationCount, ProjectRootManager.getInstance(myProject).getModificationCount());
+
+    VirtualFile newShelf = createChildDirectory(getProject().getBaseDir().getParent(), "newShelf");
+    VcsConfiguration vcs = VcsConfiguration.getInstance(myProject);
+    vcs.USE_CUSTOM_SHELF_PATH = true;
+    vcs.CUSTOM_SHELF_PATH = newShelf.getPath();
+    myModuleRootListener.reset();
+
+    VirtualFile xxx2 = createChildData(newShelf, "shelf1.dat");
+    assertTrue(ChangeListManager.getInstance(myProject).isPotentiallyIgnoredFile(xxx2));
   }
 }

@@ -18,9 +18,10 @@ package com.intellij.vcs.log.ui.table;
 import com.intellij.ide.IdeTooltip;
 import com.intellij.ide.IdeTooltipManager;
 import com.intellij.openapi.ui.popup.Balloon;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.changes.issueLinks.TableLinkMouseListener;
+import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.components.panels.Wrapper;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.ui.JBUI;
 import com.intellij.vcs.log.CommitId;
 import com.intellij.vcs.log.VcsShortCommitDetails;
@@ -35,13 +36,12 @@ import com.intellij.vcs.log.impl.CommonUiProperties;
 import com.intellij.vcs.log.impl.VcsLogUiProperties;
 import com.intellij.vcs.log.paint.GraphCellPainter;
 import com.intellij.vcs.log.paint.PositionUtil;
+import com.intellij.vcs.log.statistics.VcsLogUsageTriggerCollector;
 import com.intellij.vcs.log.ui.VcsLogColorManager;
 import com.intellij.vcs.log.ui.frame.CommitPresentationUtil;
 import com.intellij.vcs.log.ui.render.GraphCommitCellRenderer;
 import com.intellij.vcs.log.ui.render.SimpleColoredComponentLinkMouseListener;
 import com.intellij.vcs.log.util.VcsLogUiUtil;
-import com.intellij.vcs.log.util.VcsLogUtil;
-import com.intellij.vcs.log.util.VcsUserUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -179,11 +179,7 @@ public class GraphTableController {
       }
     }
     else {
-      balloonText = "Jump to <b>\"" +
-                    StringUtil.shortenTextWithEllipsis(details.getSubject(), 50, 0, "...") +
-                    "\"</b> by " +
-                    VcsUserUtil.getShortPresentation(details.getAuthor()) +
-                    CommitPresentationUtil.formatDateTime(details.getAuthorTime());
+      balloonText = "Jump to " + CommitPresentationUtil.getShortSummary(details);
     }
     return balloonText;
   }
@@ -224,18 +220,18 @@ public class GraphTableController {
 
   private void performRootColumnAction() {
     if (myColorManager.isMultipleRoots() && myProperties.exists(CommonUiProperties.SHOW_ROOT_NAMES)) {
-      VcsLogUtil.triggerUsage("RootColumnClick");
+      VcsLogUsageTriggerCollector.triggerUsage("RootColumnClick");
       myProperties.set(CommonUiProperties.SHOW_ROOT_NAMES, !myProperties.get(CommonUiProperties.SHOW_ROOT_NAMES));
     }
   }
 
   private static void triggerElementClick(@NotNull PrintElement printElement) {
     if (printElement instanceof NodePrintElement) {
-      VcsLogUtil.triggerUsage("GraphNodeClick");
+      VcsLogUsageTriggerCollector.triggerUsage("GraphNodeClick");
     }
     else if (printElement instanceof EdgePrintElement) {
       if (((EdgePrintElement)printElement).hasArrow()) {
-        VcsLogUtil.triggerUsage("GraphArrowClick");
+        VcsLogUsageTriggerCollector.triggerUsage("GraphArrowClick");
       }
     }
   }
@@ -250,7 +246,7 @@ public class GraphTableController {
 
   private class MyMouseAdapter extends MouseAdapter {
     private static final int BORDER_THICKNESS = 3;
-    @NotNull private final TableLinkMouseListener myLinkListener = new SimpleColoredComponentLinkMouseListener();
+    @NotNull private final TableLinkMouseListener myLinkListener = new MyLinkMouseListener();
     @Nullable private Cursor myLastCursor = null;
 
     @Override
@@ -361,6 +357,14 @@ public class GraphTableController {
     @Override
     public void mouseExited(MouseEvent e) {
       myTable.getExpandableItemsHandler().setEnabled(true);
+    }
+
+    private class MyLinkMouseListener extends SimpleColoredComponentLinkMouseListener {
+      @Nullable
+      @Override
+      public Object getTagAt(@NotNull MouseEvent e) {
+        return ObjectUtils.tryCast(super.getTagAt(e), SimpleColoredComponent.BrowserLauncherTag.class);
+      }
     }
   }
 }

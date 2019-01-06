@@ -160,18 +160,15 @@ public class CopyReferenceAction extends DumbAwareAction {
   }
 
   private static PsiElement adjustElement(PsiElement element) {
-    for (QualifiedNameProvider provider : QualifiedNameProvider.EP_NAME.getExtensionList()) {
-      PsiElement adjustedElement = provider.adjustElementToCopy(element);
-      if (adjustedElement != null) return adjustedElement;
-    }
-    return element;
+    PsiElement adjustedElement = QualifiedNameProviderUtil.adjustElementToCopy(element);
+    return adjustedElement != null ? adjustedElement : element;
   }
 
   public static boolean doCopy(final PsiElement element, final Project project) {
     return doCopy(Arrays.asList(element), project, null);
   }
 
-  private static boolean doCopy(List<PsiElement> elements, @Nullable final Project project, @Nullable Editor editor) {
+  private static boolean doCopy(List<? extends PsiElement> elements, @Nullable final Project project, @Nullable Editor editor) {
     if (elements.isEmpty()) return false;
 
     List<String> fqns = ContainerUtil.newArrayList();
@@ -259,15 +256,11 @@ public class CopyReferenceAction extends DumbAwareAction {
     if (element == null) return null;
     DumbService.getInstance(element.getProject()).setAlternativeResolveEnabled(true);
     try {
-      for (QualifiedNameProvider provider : QualifiedNameProvider.EP_NAME.getExtensionList()) {
-        String result = provider.getQualifiedName(element);
-        if (result != null) return result;
-      }
+      return QualifiedNameProviderUtil.getQualifiedName(element);
     }
     finally {
       DumbService.getInstance(element.getProject()).setAlternativeResolveEnabled(false);
     }
-    return null;
   }
 
   @NotNull

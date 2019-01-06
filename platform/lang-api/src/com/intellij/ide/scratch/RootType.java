@@ -5,7 +5,6 @@ import com.intellij.lang.Language;
 import com.intellij.lang.LanguageUtil;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
@@ -28,13 +27,13 @@ public abstract class RootType {
   public static final ExtensionPointName<RootType> ROOT_EP = ExtensionPointName.create("com.intellij.scratch.rootType");
 
   @NotNull
-  public static List<RootType> getAllRootIds() {
+  public static List<RootType> getAllRootTypes() {
     return ROOT_EP.getExtensionList();
   }
 
   @NotNull
   public static RootType findById(@NotNull String id) {
-    for (RootType type : getAllRootIds()) {
+    for (RootType type : getAllRootTypes()) {
       if (id.equals(type.getId())) return type;
     }
     throw new AssertionError(id);
@@ -42,7 +41,7 @@ public abstract class RootType {
 
   @NotNull
   public static <T extends RootType> T findByClass(Class<T> aClass) {
-    return Extensions.findExtension(ROOT_EP, aClass);
+    return ROOT_EP.findExtensionOrFail(aClass);
   }
 
   @Nullable

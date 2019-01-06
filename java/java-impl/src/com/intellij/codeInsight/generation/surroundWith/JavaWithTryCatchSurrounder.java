@@ -26,6 +26,7 @@ import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.util.IncorrectOperationException;
+import com.siyeh.ig.psiutils.VariableNameGenerator;
 import org.jetbrains.annotations.NonNls;
 
 import java.util.Collections;
@@ -43,7 +44,7 @@ public class JavaWithTryCatchSurrounder extends JavaStatementsSurrounder {
   public TextRange surroundStatements(Project project, Editor editor, PsiElement container, PsiElement[] statements)
     throws IncorrectOperationException {
     PsiManager manager = PsiManager.getInstance(project);
-    PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
     JavaCodeStyleManager codeStyleManager = JavaCodeStyleManager.getInstance(project);
 
     statements = SurroundWithUtil.moveDeclarationsOut(container, statements, true);
@@ -81,11 +82,10 @@ public class JavaWithTryCatchSurrounder extends JavaStatementsSurrounder {
 
     for (int i = 0; i < exceptions.size(); i++) {
       PsiClassType exception = exceptions.get(i);
-      String[] nameSuggestions = codeStyleManager.suggestVariableName(VariableKind.PARAMETER, null, null, exception).names;
-      String name = codeStyleManager.suggestUniqueVariableName(nameSuggestions[0], tryBlock, false);
+      String name = new VariableNameGenerator(tryBlock, VariableKind.PARAMETER).byType(exception).byName("e", "ex", "exc").generate(false);
       PsiCatchSection catchSection;
       try {
-        catchSection = factory.createCatchSection(exception, name, null);
+        catchSection = factory.createCatchSection(exception, name, tryBlock);
       }
       catch (IncorrectOperationException e) {
         Messages.showErrorDialog(project, CodeInsightBundle.message("surround.with.try.catch.incorrect.template.message"),

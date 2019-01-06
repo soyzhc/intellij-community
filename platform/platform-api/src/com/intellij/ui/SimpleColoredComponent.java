@@ -633,8 +633,8 @@ public class SimpleColoredComponent extends JComponent implements Accessible, Co
     }
   }
 
-  private static String convertFragment(String fragment) {
-    return StringUtil.escapeXml(fragment).replaceAll("\\\\n", "<br>");
+  private static String convertFragment(@NotNull String fragment) {
+    return StringUtil.escapeXmlEntities(fragment).replaceAll("\\\\n", "<br>");
   }
 
   private static void formatStyle(final StringBuilder builder, final SimpleTextAttributes attributes) {
@@ -797,13 +797,7 @@ public class SimpleColoredComponent extends JComponent implements Accessible, Co
           doPaintFragmentBackground(g, i, bgColor, (int)offset, 0, (int)fragmentWidth, height);
         }
 
-        Color color = attributes.getFgColor();
-        if (color == null) { // in case if color is not defined we have to get foreground color from Swing hierarchy
-          color = getForeground();
-        }
-        if (!isEnabled()) {
-          color = UIUtil.getInactiveTextColor();
-        }
+        Color color = isEnabled() ? getActiveTextColor(attributes.getFgColor()) : UIUtil.getInactiveTextColor();
         g.setColor(color);
 
         final int fragmentAlignment = fragment.alignment;
@@ -884,6 +878,11 @@ public class SimpleColoredComponent extends JComponent implements Accessible, Co
     }
   }
 
+  protected Color getActiveTextColor(Color attributesColor) {
+    // in case if color is not defined we have to get foreground color from Swing hierarchy
+    return attributesColor != null ? attributesColor : getForeground();
+  }
+
   protected void doPaintFragmentBackground(@NotNull Graphics2D g, int index, @NotNull Color bgColor, int x, int y, int width, int height) {
     g.setColor(bgColor);
     g.fillRect(x, y, width, height);
@@ -960,6 +959,7 @@ public class SimpleColoredComponent extends JComponent implements Accessible, Co
   /**
    * @deprecated and won't be used anymore
    */
+  @Deprecated
   protected boolean shouldDrawMacShadow() {
     return false;
   }

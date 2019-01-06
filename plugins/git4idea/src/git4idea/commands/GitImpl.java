@@ -20,6 +20,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -48,10 +49,7 @@ import static java.util.Collections.*;
 /**
  * Easy-to-use wrapper of common native Git commands.
  * Most of them return result as {@link GitCommandResult}.
- *
- * @author Kirill Likhodedov
  */
-@SuppressWarnings("StringToUpperCaseOrToLowerCaseWithoutLocale")
 public class GitImpl extends GitImplBase {
 
   private static final Logger LOG = Logger.getInstance(Git.class);
@@ -73,6 +71,61 @@ public class GitImpl extends GitImplBase {
     h.setSilent(false);
     h.setStdoutSuppressed(false);
     return runCommand(h);
+  }
+
+  @NotNull
+  @Override
+  public Set<VirtualFile> ignoredFiles(@NotNull Project project, @NotNull VirtualFile root, @Nullable Collection<FilePath> paths)
+    throws VcsException {
+    Set<VirtualFile> ignoredFiles = new HashSet<>();
+
+    if (paths == null) {
+      ignoredFiles.addAll(ignoredFilesNoChunk(project, root, null));
+    }
+    else {
+      for (List<String> relativePaths : VcsFileUtil.chunkPaths(root, paths)) {
+        ignoredFiles.addAll(ignoredFilesNoChunk(project, root, relativePaths));
+      }
+    }
+    return ignoredFiles;
+  }
+
+  @NotNull
+  @Override
+  public Set<VirtualFile> ignoredFilesNoChunk(@NotNull Project project, @NotNull VirtualFile root, @Nullable List<String> paths)
+    throws VcsException {
+    GitLineHandler h = new GitLineHandler(project, root, GitCommand.STATUS);
+    h.setSilent(true);
+    h.addParameters("--ignored", "--porcelain", "-z");
+    if (paths != null) {
+      h.addParameters(paths);
+    }
+    h.endOptions();
+
+    final String output = runCommand(h).getOutputOrThrow();
+    return parseFiles(root, output, "!! ");
+  }
+
+  @NotNull
+  private static Set<VirtualFile> parseFiles(@NotNull VirtualFile root, @Nullable String output, @NotNull String fileStatusPrefix) {
+    if (StringUtil.isEmptyOrSpaces(output)) return emptySet();
+
+    final Set<VirtualFile> files = new HashSet<>();
+    for (String relPath : output.split("\u0000")) {
+      if (!fileStatusPrefix.isEmpty() && !relPath.startsWith(fileStatusPrefix)) continue;
+
+      VirtualFile f = root.findFileByRelativePath(relPath.substring(fileStatusPrefix.length()));
+      if (f == null) {
+        // files was created on disk, but VirtualFile hasn't yet been created,
+        // when the GitChangeProvider has already been requested about changes.
+        LOG.info(String.format("VirtualFile for path [%s] is null", relPath));
+      }
+      else {
+        files.add(f);
+      }
+    }
+
+    return files;
   }
 
   /**
@@ -109,7 +162,6 @@ public class GitImpl extends GitImplBase {
                                                        @NotNull VirtualFile root,
                                                        @Nullable List<String> relativePaths)
     throws VcsException {
-    final Set<VirtualFile> untrackedFiles = new HashSet<>();
     GitLineHandler h = new GitLineHandler(project, root, GitCommand.LS_FILES);
     h.setSilent(true);
     h.addParameters("--exclude-standard", "--others", "-z");
@@ -119,23 +171,7 @@ public class GitImpl extends GitImplBase {
     }
 
     final String output = runCommand(h).getOutputOrThrow();
-    if (StringUtil.isEmptyOrSpaces(output)) {
-      return untrackedFiles;
-    }
-
-    for (String relPath : output.split("\u0000")) {
-      VirtualFile f = root.findFileByRelativePath(relPath);
-      if (f == null) {
-        // files was created on disk, but VirtualFile hasn't yet been created,
-        // when the GitChangeProvider has already been requested about changes.
-        LOG.info(String.format("VirtualFile for path [%s] is null", relPath));
-      }
-      else {
-        untrackedFiles.add(f);
-      }
-    }
-
-    return untrackedFiles;
+    return parseFiles(root, output, "");
   }
 
   @Override
@@ -449,17 +485,20 @@ public class GitImpl extends GitImplBase {
       if (updateTracking) {
         h.addParameters("--set-upstream");
       }
-      if (force) {
-        h.addParameters("--force");
+      if (GitVersionSpecialty.SUPPORTS_FORCE_PUSH_WITH_LEASE.existsIn(repository) &&
+          !forceWithLease.isEmpty()) {
+        for (GitPushParams.ForceWithLease lease : forceWithLease) {
+          String parameter = lease.getParameter();
+          if (parameter != null) {
+            h.addParameters("--force-with-lease=" + parameter);
+          }
+          else {
+            h.addParameters("--force-with-lease");
+          }
+        }
       }
-      for (GitPushParams.ForceWithLease lease : forceWithLease) {
-        String parameter = lease.getParameter();
-        if (parameter != null) {
-          h.addParameters("--force-with-lease=" + parameter);
-        }
-        else {
-          h.addParameters("--force-with-lease");
-        }
+      else if (force) {
+        h.addParameters("--force");
       }
       if (tagMode != null) {
         h.addParameters(tagMode);
@@ -526,8 +565,20 @@ public class GitImpl extends GitImplBase {
                                 @NotNull final GitRemote remote,
                                 @NotNull final List<GitLineHandlerListener> listeners,
                                 final String... params) {
+    return fetch(repository, remote, listeners, null, params);
+  }
+
+  @NotNull
+  public GitCommandResult fetch(@NotNull final GitRepository repository,
+                                @NotNull final GitRemote remote,
+                                @NotNull final List<GitLineHandlerListener> listeners,
+                                @Nullable GitAuthenticationGate authenticationGate,
+                                final String... params) {
     return runCommand(() -> {
-      final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.FETCH);
+      GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.FETCH);
+      if (authenticationGate != null) {
+        h.setAuthenticationGate(authenticationGate);
+      }
       h.setSilent(false);
       h.setStdoutSuppressed(false);
       h.setUrls(remote.getUrls());

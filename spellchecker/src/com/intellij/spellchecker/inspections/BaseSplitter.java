@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
 public abstract class BaseSplitter implements Splitter {
   public static final int MIN_RANGE_LENGTH = 3;
 
-  protected static void addWord(@NotNull Consumer<TextRange> consumer, boolean ignore, @Nullable TextRange found) {
+  protected static void addWord(@NotNull Consumer<? super TextRange> consumer, boolean ignore, @Nullable TextRange found) {
     if (found == null || ignore) {
       return;
     }
@@ -93,8 +93,8 @@ public abstract class BaseSplitter implements Splitter {
     int from = range.getStartOffset();
     int till;
     boolean addLast = true;
-    Matcher matcher = toExclude.matcher(StringUtil.newBombedCharSequence(range.substring(text), 500));
     try {
+      Matcher matcher = toExclude.matcher(StringUtil.newBombedCharSequence(range.substring(text), 500));
       while (matcher.find()) {
         checkCancelled();
         TextRange found = matcherRange(range, matcher);

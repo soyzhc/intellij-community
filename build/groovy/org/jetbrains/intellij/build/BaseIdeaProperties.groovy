@@ -1,10 +1,6 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
-
-
 package org.jetbrains.intellij.build
 
-import com.intellij.util.SystemProperties
 import org.jetbrains.intellij.build.impl.PlatformLayout
 
 import java.util.function.Consumer
@@ -20,7 +16,8 @@ abstract class BaseIdeaProperties extends ProductProperties {
     "intellij.java.execution",
     "intellij.java.remoteServers",
     "intellij.java.testFramework",
-    "intellij.platform.testFramework.core"
+    "intellij.platform.testFramework.core",
+    "intellij.platform.uast.tests"
   ]
   protected static final List<String> JAVA_IMPLEMENTATION_MODULES = [
     "intellij.java.compiler.impl",
@@ -81,9 +78,10 @@ abstract class BaseIdeaProperties extends ProductProperties {
 
   BaseIdeaProperties() {
     productLayout.mainJarName = "idea.jar"
-    productLayout.searchableOptionsModule = "intellij.java.resources.en"
+    productLayout.moduleExcludes.put("intellij.java.resources.en", "search/searchableOptions.xml")
 
     productLayout.additionalPlatformJars.put("external-system-rt.jar", "intellij.platform.externalSystem.rt")
+    productLayout.additionalPlatformJars.put("external-system-impl.jar", "intellij.platform.externalSystem.impl")
     productLayout.additionalPlatformJars.put("jps-launcher.jar", "intellij.platform.jps.build.launcher")
     productLayout.additionalPlatformJars.put("jps-builders.jar", "intellij.platform.jps.build")
     productLayout.additionalPlatformJars.put("jps-builders-6.jar", "intellij.platform.jps.build.javac.rt")
@@ -120,6 +118,7 @@ abstract class BaseIdeaProperties extends ProductProperties {
 
         withModule("intellij.java.rt", "idea_rt.jar", null)
         withArtifact("debugger-agent", "rt")
+        withArtifact("debugger-agent-storage", "rt")
         withProjectLibrary("Eclipse")
         withProjectLibrary("jgoodies-common")
         withProjectLibrary("commons-net")
@@ -128,23 +127,19 @@ abstract class BaseIdeaProperties extends ProductProperties {
         withoutProjectLibrary("Ant")
         withoutProjectLibrary("Gradle")
         removeVersionFromProjectLibraryJarNames("jetbrains-annotations")
+        withProjectLibrary("JUnit3")
         removeVersionFromProjectLibraryJarNames("JUnit3") //for compatibility with users projects which refer to IDEA_HOME/lib/junit.jar
       }
     } as Consumer<PlatformLayout>
 
     additionalModulesToCompile = ["intellij.tools.jps.build.standalone"]
     modulesToCompileTests = ["intellij.platform.jps.build"]
-    productLayout.buildAllCompatiblePlugins = true
-    productLayout.prepareCustomPluginRepositoryForPublishedPlugins = SystemProperties.getBooleanProperty('intellij.build.prepare.plugin.repository', false)
   }
 
   @Override
   void copyAdditionalFiles(BuildContext context, String targetDirectory) {
     context.ant.jar(destfile: "$targetDirectory/lib/jdkAnnotations.jar") {
       fileset(dir: "$context.paths.communityHome/java/jdkAnnotations")
-    }
-    context.ant.copy(todir: "$targetDirectory/lib") {
-      fileset(file: "$context.paths.communityHome/jps/lib/optimizedFileManager.jar")
     }
     context.ant.copy(todir: "$targetDirectory/lib/ant") {
       fileset(dir: "$context.paths.communityHome/lib/ant") {

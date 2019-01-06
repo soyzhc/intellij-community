@@ -15,6 +15,7 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.components.*;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.BackgroundTaskUtil;
@@ -69,6 +70,8 @@ import java.util.List;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.intellij.openapi.util.text.StringUtil.nullize;
+
 @State(name = "ProjectLevelVcsManager", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
 public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx implements ProjectComponent, PersistentStateComponent<Element>, Disposable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.impl.ProjectLevelVcsManagerImpl");
@@ -115,7 +118,6 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
   private final VcsHistoryCache myVcsHistoryCache;
   private final ContentRevisionCache myContentRevisionCache;
   private final FileIndexFacade myExcludedIndex;
-  private final VcsFileListenerContextHelper myVcsFileListenerContextHelper;
   private final VcsAnnotationLocalChangesListenerImpl myAnnotationLocalChangesListener;
 
   public ProjectLevelVcsManagerImpl(Project project,
@@ -153,10 +155,8 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
 
     myVcsHistoryCache = new VcsHistoryCache();
     myContentRevisionCache = new ContentRevisionCache();
-    myVcsFileListenerContextHelper = vcsFileListenerContextHelper;
     VcsListener vcsListener = () -> {
       myVcsHistoryCache.clearHistory();
-      myVcsFileListenerContextHelper.possiblySwitchActivation(hasActiveVcss());
     };
     myExcludedIndex = excludedFileIndex;
     MessageBusConnection connection = myProject.getMessageBus().connect();
@@ -193,7 +193,7 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
   }
 
   @Override
-  public void iterateVfUnderVcsRoot(VirtualFile file, Processor<VirtualFile> processor) {
+  public void iterateVfUnderVcsRoot(VirtualFile file, Processor<? super VirtualFile> processor) {
     VcsRootIterator.iterateVfUnderVcsRoot(myProject, file, processor);
   }
 
@@ -267,6 +267,19 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
       return null;
     }
     return AllVcses.getInstance(myProject).getByName(vcsName);
+  }
+
+  /**
+   * Common {@link #getVcsFor(VirtualFile)} method uses {@link DefaultVcsRootPolicy#getMatchContext(VirtualFile)} if default mapping is
+   * present. Some implementations, like {@link ModuleDefaultVcsRootPolicy}, rely on indices state, which could be critical for some code
+   * flows. For instance, when processing {@link com.intellij.openapi.project.ModuleListener#moduleAdded(Project, Module)} events. In such
+   * cases, we could explicitly specify context (i.e. {@link Module}) to get correct result.
+   */
+  AbstractVcs<?> getVcsFor(@NotNull VirtualFile file, @Nullable Object matchContext) {
+    VcsDirectoryMapping mapping = myMappings.getMappingFor(file, matchContext);
+    String vcsName = mapping != null ? nullize(mapping.getVcs()) : null;
+
+    return vcsName != null ? AllVcses.getInstance(myProject).getByName(vcsName) : null;
   }
 
   @Override
@@ -409,17 +422,19 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
     if (content == null) {
       releaseConsole();
 
-      myConsole = TextConsoleBuilderFactory.getInstance().createBuilder(myProject).getConsole();
+      ConsoleView console = TextConsoleBuilderFactory.getInstance().createBuilder(myProject).getConsole();
+      myConsole = console;
 
       JPanel panel = new JPanel(new BorderLayout());
-      panel.add(myConsole.getComponent(), BorderLayout.CENTER);
+      panel.add(console.getComponent(), BorderLayout.CENTER);
 
       ActionToolbar toolbar = ActionManager.getInstance()
-        .createActionToolbar("VcsManager", new DefaultActionGroup(myConsole.createConsoleActions()), false);
+        .createActionToolbar("VcsManager", new DefaultActionGroup(console.createConsoleActions()), false);
       panel.add(toolbar.getComponent(), BorderLayout.WEST);
 
       content = ContentFactory.SERVICE.getInstance().createContent(panel, displayName, true);
       content.setDisposer(myConsoleDisposer);
+      content.setPreferredFocusedComponent(() -> console.getPreferredFocusableComponent());
       contentManager.addContent(content);
 
       for (Pair<String, ConsoleViewContentType> pair : myPendingOutput) {
@@ -540,13 +555,13 @@ public class ProjectLevelVcsManagerImpl extends ProjectLevelVcsManagerEx impleme
   }
 
   @Override
-  public void iterateVcsRoot(final VirtualFile root, final Processor<FilePath> iterator) {
+  public void iterateVcsRoot(final VirtualFile root, final Processor<? super FilePath> iterator) {
     VcsRootIterator.iterateVcsRoot(myProject, root, iterator);
   }
 
   @Override
   public void iterateVcsRoot(VirtualFile root,
-                             Processor<FilePath> iterator,
+                             Processor<? super FilePath> iterator,
                              @Nullable VirtualFileFilter directoryFilter) {
     VcsRootIterator.iterateVcsRoot(myProject, root, iterator, directoryFilter);
   }

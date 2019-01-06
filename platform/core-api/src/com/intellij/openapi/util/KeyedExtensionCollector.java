@@ -9,6 +9,7 @@ import com.intellij.diagnostic.PluginException;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.*;
+import com.intellij.openapi.extensions.impl.ExtensionPointImpl;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.KeyedLazyInstance;
@@ -23,16 +24,16 @@ import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
 
-public class KeyedExtensionCollector<T, KeyT> {
+public class KeyedExtensionCollector<T, KeyT> implements ModificationTracker {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.util.KeyedExtensionCollector");
 
   private final Map<String, List<T>> myExplicitExtensions = new THashMap<>(); // guarded by lock
   private final ConcurrentMap<String, List<T>> myCache = ContainerUtil.newConcurrentMap();
 
-  @NonNls private final String lock;
+  @NonNls protected final String lock;
 
   private final String myEpName;
-  private final List<ExtensionPointListener<T>> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
+  private final SimpleModificationTracker myTracker = new SimpleModificationTracker();
 
   private final ExtensionPointAndAreaListener<KeyedLazyInstance<T>> myListener = new ExtensionPointAndAreaListener<KeyedLazyInstance<T>>() {
     @Override
@@ -46,28 +47,23 @@ public class KeyedExtensionCollector<T, KeyT> {
           LOG.error("No key specified for extension of class " + bean.getInstance().getClass());
           return;
         }
-        String skey = bean.getKey();
-        myCache.remove(skey);
-        for (ExtensionPointListener<T> listener : myListeners) {
-          listener.extensionAdded(bean.getInstance(), null);
-        }
+        myCache.remove(bean.getKey());
+        myTracker.incModificationCount();
       }
     }
 
     @Override
     public void extensionRemoved(@NotNull final KeyedLazyInstance<T> bean, @Nullable final PluginDescriptor pluginDescriptor) {
       synchronized (lock) {
-        String skey = bean.getKey();
-        myCache.remove(skey);
-        for (ExtensionPointListener<T> listener : myListeners) {
-          listener.extensionRemoved(bean.getInstance(), null);
-        }
+        myCache.remove(bean.getKey());
+        myTracker.incModificationCount();
       }
     }
 
     @Override
     public void areaReplaced(@NotNull final ExtensionsArea area) {
       myCache.clear();
+      myTracker.incModificationCount();
     }
   };
   private final ExtensionPointAvailabilityListener myExtensionPointAvailabilityListener;
@@ -80,8 +76,9 @@ public class KeyedExtensionCollector<T, KeyT> {
       public void extensionPointRegistered(@NotNull ExtensionPoint extensionPoint) {
         if (extensionPoint.getName().equals(epName)) {
           //noinspection unchecked
-          extensionPoint.addExtensionPointListener(myListener);
+          ((ExtensionPointImpl)extensionPoint).addExtensionPointListener(myListener, false, null);
           myCache.clear();
+          myTracker.incModificationCount();
         }
       }
 
@@ -93,7 +90,7 @@ public class KeyedExtensionCollector<T, KeyT> {
     Extensions.getRootArea().addAvailabilityListener(epName, myExtensionPointAvailabilityListener);
   }
 
-  public KeyedExtensionCollector(@NonNls @NotNull String epName, Disposable parentDisposable) {
+  public KeyedExtensionCollector(@NonNls @NotNull String epName, @NotNull Disposable parentDisposable) {
     this(epName);
     Disposer.register(parentDisposable, new Disposable() {
       @Override
@@ -115,9 +112,7 @@ public class KeyedExtensionCollector<T, KeyT> {
       List<T> list = myExplicitExtensions.computeIfAbsent(skey, __ -> new SmartList<>());
       list.add(t);
       myCache.remove(skey);
-      for (ExtensionPointListener<T> listener : myListeners) {
-        listener.extensionAdded(t, null);
-      }
+      myTracker.incModificationCount();
     }
   }
 
@@ -132,9 +127,7 @@ public class KeyedExtensionCollector<T, KeyT> {
         }
       }
       myCache.remove(skey);
-      for (ExtensionPointListener<T> listener : myListeners) {
-        listener.extensionRemoved(t, null);
-      }
+      myTracker.incModificationCount();
     }
   }
 
@@ -144,7 +137,7 @@ public class KeyedExtensionCollector<T, KeyT> {
   }
 
   /**
-   * @see #findSingle(Object)
+   * @see #findSingle
    */
   @NotNull
   public List<T> forKey(@NotNull KeyT key) {
@@ -178,7 +171,7 @@ public class KeyedExtensionCollector<T, KeyT> {
     }
   }
 
-  private List<T> buildExtensionsFromExtensionPoint(@Nullable List<T> result, @NotNull Predicate<? super KeyedLazyInstance<T>> isMyBean) {
+  protected List<T> buildExtensionsFromExtensionPoint(@Nullable List<T> result, @NotNull Predicate<? super KeyedLazyInstance<T>> isMyBean) {
     final ExtensionPoint<KeyedLazyInstance<T>> point = getPoint();
     if (point != null) {
       final KeyedLazyInstance<T>[] beans = point.getExtensions();
@@ -204,25 +197,30 @@ public class KeyedExtensionCollector<T, KeyT> {
   }
 
   @NotNull
-  protected final List<T> buildExtensions(@NotNull Set<String> keys) {
+  protected List<T> buildExtensions(@NotNull Set<String> keys) {
     synchronized (lock) {
       List<T> result = null;
-      for (Map.Entry<String, List<T>> entry : myExplicitExtensions.entrySet()) {
-        String key = entry.getKey();
-        if (keys.contains(key)) {
-          List<T> list = entry.getValue();
-          if (result == null) {
-            result = new ArrayList<>(list);
-          }
-          else {
-            result.addAll(list);
-          }
-        }
-      }
+      result = buildExtensionsFromExplicitRegistration(result, key -> keys.contains(key));
 
       result = buildExtensionsFromExtensionPoint(result, bean -> keys.contains(bean.getKey()));
       return result == null ? Collections.emptyList() : result;
     }
+  }
+
+  protected List<T> buildExtensionsFromExplicitRegistration(List<T> result, Condition<String> isMyBean) {
+    for (Map.Entry<String, List<T>> entry : myExplicitExtensions.entrySet()) {
+      String key = entry.getKey();
+      if (isMyBean.value(key)) {
+        List<T> list = entry.getValue();
+        if (result == null) {
+          result = new ArrayList<>(list);
+        }
+        else {
+          result.addAll(list);
+        }
+      }
+    }
+    return result;
   }
 
   @Nullable
@@ -238,13 +236,23 @@ public class KeyedExtensionCollector<T, KeyT> {
     }
   }
 
-  public void addListener(@NotNull final ExtensionPointListener<T> listener, @NotNull Disposable parent) {
-    myListeners.add(listener);
-    Disposer.register(parent, () -> myListeners.remove(listener));
-  }
-
   @NotNull
   public String getName() {
     return myEpName;
   }
+
+  @Override
+  public long getModificationCount() {
+    return myTracker.getModificationCount();
+  }
+
+  protected void ensureValuesLoaded() {
+    ExtensionPoint<KeyedLazyInstance<T>> point = getPoint();
+    if (point != null) {
+      for (KeyedLazyInstance<T> bean : point.getExtensionList()) {
+        bean.getInstance();
+      }
+    }
+  }
+
 }

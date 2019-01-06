@@ -41,10 +41,7 @@ class UastContext(val project: Project) : UastLanguagePlugin {
   val languagePlugins: Collection<UastLanguagePlugin>
     get() = UastLanguagePlugin.getInstances()
 
-  fun findPlugin(element: PsiElement): UastLanguagePlugin? {
-    val language = element.language
-    return languagePlugins.firstOrNull { it.language == language }
-  }
+  fun findPlugin(element: PsiElement): UastLanguagePlugin? = UastLanguagePlugin.byLanguage(element.language)
 
   override fun isFileSupported(fileName: String): Boolean = languagePlugins.any { it.isFileSupported(fileName) }
 
@@ -64,6 +61,10 @@ class UastContext(val project: Project) : UastLanguagePlugin {
   }
 
   override fun convertElementWithParent(element: PsiElement, requiredType: Class<out UElement>?): UElement? {
+    if (element is PsiWhiteSpace) {
+      return null
+    }
+
     val cachedElement = element.getUserData(CACHED_UELEMENT_KEY)?.get()
     if (cachedElement != null) {
       return if (requiredType == null || requiredType.isInstance(cachedElement)) cachedElement else null
@@ -112,6 +113,13 @@ fun PsiElement?.toUElement(): UElement? =
 fun <T : UElement> PsiElement?.toUElement(cls: Class<out T>): T? =
   this?.let { ServiceManager.getService(project, UastContext::class.java).convertElementWithParent(this, cls) as T? }
 
+fun <T : UElement> PsiElement?.toUElementOfExpectedTypes(vararg clss: Class<out T>): T? =
+  this?.let {
+    ServiceManager.getService(project, UastContext::class.java)
+      .convertElementWithParent(this, if (clss.isNotEmpty()) clss.toList() else DEFAULT_TYPES_LIST) as T?
+  }
+
+
 inline fun <reified T : UElement> PsiElement?.toUElementOfType(): T? =
   this?.let { ServiceManager.getService(project, UastContext::class.java).convertElementWithParent(this, T::class.java) as T? }
 
@@ -140,3 +148,9 @@ fun <T : UElement> PsiElement?.getUastParentOfType(cls: Class<out T>, strict: Bo
 }
 
 inline fun <reified T : UElement> PsiElement?.getUastParentOfType(strict: Boolean = false): T? = getUastParentOfType(T::class.java, strict)
+
+@JvmField
+val DEFAULT_TYPES_LIST: List<Class<out UElement>> = listOf(UElement::class.java)
+
+@JvmField
+val DEFAULT_EXPRESSION_TYPES_LIST: List<Class<out UExpression>> = listOf(UExpression::class.java)

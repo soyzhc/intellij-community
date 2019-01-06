@@ -262,22 +262,21 @@ public class StreamChainInliner implements CallInliner {
 
     @Override
     protected void pushInitialValue(CFGBuilder builder) {
-      builder.push(builder.getFactory().getFactValue(DfaFactType.OPTIONAL_PRESENCE, false));
+      builder.push(DfaOptionalSupport.getOptionalValue(builder.getFactory(), false));
     }
 
     @Override
     void iteration(CFGBuilder builder) {
-      DfaValue presentOptional = builder.getFactory().getFactValue(DfaFactType.OPTIONAL_PRESENCE, true);
       if (myFunction != null) {
-        builder.push(myResult)
-               .push(presentOptional)
-               .ifCondition(JavaTokenType.INSTANCEOF_KEYWORD)
+        DfaVariableValue optValue = (DfaVariableValue)SpecialField.OPTIONAL_VALUE.createValue(builder.getFactory(), myResult);
+        builder.push(optValue)
+               .ifNotNull()
                  .push(builder.getFactory().getFactValue(DfaFactType.NULLABILITY, DfaNullability.NOT_NULL))
                  .swap()
                  .invokeFunction(2, myFunction, Nullability.NOT_NULL)
                .end();
       }
-      builder.assign(myResult, presentOptional).splice(2);
+      builder.assign(myResult, DfaOptionalSupport.getOptionalValue(builder.getFactory(), true)).splice(2);
     }
   }
 
@@ -291,7 +290,7 @@ public class StreamChainInliner implements CallInliner {
 
     @Override
     protected void pushInitialValue(CFGBuilder builder) {
-      builder.push(builder.getFactory().getFactValue(DfaFactType.OPTIONAL_PRESENCE, false));
+      builder.push(DfaOptionalSupport.getOptionalValue(builder.getFactory(), false));
     }
 
     @Override
@@ -303,7 +302,7 @@ public class StreamChainInliner implements CallInliner {
     @Override
     void iteration(CFGBuilder builder) {
       myComparatorModel.invoke(builder);
-      builder.assignAndPop(myResult, builder.getFactory().getFactValue(DfaFactType.OPTIONAL_PRESENCE, true));
+      builder.assignAndPop(myResult, DfaOptionalSupport.getOptionalValue(builder.getFactory(), true));
     }
 
     @Override
@@ -415,7 +414,7 @@ public class StreamChainInliner implements CallInliner {
     void before(CFGBuilder builder) {
       if (myStreamSource == null) {
         PsiExpression arg = myCall.getArgumentList().getExpressions()[0];
-        builder.pushExpression(arg).checkNotNull(arg, NullabilityProblemKind.passingNullableToNotNullParameter).pop();
+        builder.evaluateFunction(arg);
       }
       super.before(builder);
     }
@@ -426,13 +425,16 @@ public class StreamChainInliner implements CallInliner {
         builder.assignTo(myParameter).pop();
         buildStreamCFG(builder, myChain, myStreamSource);
       } else {
+        PsiExpression arg = myCall.getArgumentList().getExpressions()[0];
         PsiType outType = StreamApiUtil.getStreamElementType(myCall.getType());
-        builder.pop()
-               .pushUnknown()
-               .ifConditionIs(true)
-                 .doWhileUnknown()
-                   .push(builder.getFactory().createTypeValue(outType, Nullability.UNKNOWN))
-                   .chain(myNext::iteration)
+        builder.invokeFunction(1, arg, Nullability.NULLABLE)
+               .ifNotNull()
+                 .pushUnknown()
+                 .ifConditionIs(true)
+                   .doWhileUnknown()
+                     .push(builder.getFactory().createTypeValue(outType, Nullability.UNKNOWN))
+                     .chain(myNext::iteration)
+                   .end()
                  .end()
                .end();
       }
@@ -722,45 +724,31 @@ public class StreamChainInliner implements CallInliner {
         .chain(firstStep::iteration);
       return;
     }
+    PsiExpression qualifierExpression = null;
+    SpecialField sizeField = null;
     if (array) {
-      PsiExpression qualifierExpression = sourceCall.getArgumentList().getExpressions()[0];
-      DfaValue qualifierValue = builder.getFactory().createValue(qualifierExpression);
-      if (qualifierValue != null) {
-        builder.pushExpression(qualifierExpression)
-               .chain(firstStep::before)
-               .checkNotNull(qualifierExpression, NullabilityProblemKind.passingNullableToNotNullParameter)
-               .pop()
-               .push(SpecialField.ARRAY_LENGTH.createValue(builder.getFactory(), qualifierValue))
-               .push(builder.getFactory().getInt(0))
-               .ifCondition(JavaTokenType.GT)
-               .chain(b -> makeMainLoop(b, firstStep, inType))
-               .end();
-        return;
-      }
+      qualifierExpression = sourceCall.getArgumentList().getExpressions()[0];
+      sizeField = SpecialField.ARRAY_LENGTH;
     }
-    if (COLLECTION_STREAM.test(sourceCall)) {
-      PsiExpression qualifierExpression = sourceCall.getMethodExpression().getQualifierExpression();
-      DfaValue qualifierValue = builder.getFactory().createValue(qualifierExpression);
-      if (qualifierValue != null) {
-        builder.pushExpression(qualifierExpression)
-               .chain(firstStep::before)
-               .checkNotNull(sourceCall, NullabilityProblemKind.callNPE)
-               .pop()
-               .push(SpecialField.COLLECTION_SIZE.createValue(builder.getFactory(), qualifierValue))
-               .push(builder.getFactory().getInt(0))
-               .ifCondition(JavaTokenType.GT)
-               .chain(b -> makeMainLoop(b, firstStep, inType))
-               .end();
-        return;
-      }
+    else if (COLLECTION_STREAM.test(sourceCall)) {
+      qualifierExpression = sourceCall.getMethodExpression().getQualifierExpression();
+      sizeField = SpecialField.COLLECTION_SIZE;
+    }
+    if (qualifierExpression != null) {
+      builder.pushExpression(qualifierExpression)
+        .chain(firstStep::before)
+        .unwrap(sizeField)
+        .push(builder.getFactory().getInt(0))
+        .ifCondition(JavaTokenType.GT);
+    } else {
+      builder
+        .pushExpression(originalQualifier)
+        .pop()
+        .chain(firstStep::before)
+        .pushUnknown()
+        .ifConditionIs(true);
     }
     builder
-      .pushExpression(originalQualifier)
-      .checkNotNull(firstStep.myCall, NullabilityProblemKind.callNPE)
-      .pop()
-      .chain(firstStep::before)
-      .pushUnknown()
-      .ifConditionIs(true)
       .chain(b -> makeMainLoop(b, firstStep, inType))
       .end();
   }

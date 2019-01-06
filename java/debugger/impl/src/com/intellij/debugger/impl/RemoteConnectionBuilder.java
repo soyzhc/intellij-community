@@ -167,7 +167,6 @@ public class RemoteConnectionBuilder {
         String versionString = jdk.getVersionString();
         throw new ExecutionException(DebuggerBundle.message("error.invalid.jdk.home", versionString));
       }
-      //noinspection HardCodedStringLiteral
       File dllFile = new File(
         homeDirectory.getPath().replace('/', File.separatorChar) + File.separator + "bin" + File.separator + "jdwp.dll"
       );
@@ -210,7 +209,7 @@ public class RemoteConnectionBuilder {
             }
             if (agentFile.exists()) {
               String agentPath = JavaExecutionUtil.handleSpacesInAgentPath(
-                agentFile.getAbsolutePath(), "captureAgent", null, f -> AGENT_FILE_NAME.equals(f.getName()));
+                agentFile.getAbsolutePath(), "captureAgent", null, f -> f.getName().startsWith("debugger-agent"));
               if (agentPath != null) {
                 parametersList.add(prefix + agentPath + generateAgentSettings());
               }

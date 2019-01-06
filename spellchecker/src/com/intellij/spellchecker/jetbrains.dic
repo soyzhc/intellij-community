@@ -131,6 +131,7 @@ covariant
 cplusplus
 cron
 ctrl
+cubemx
 customizer
 customizers
 cyclomatic
@@ -236,6 +237,7 @@ gitlab
 globals
 google
 goto
+gradle
 grapheme
 gruntfile
 gruntfiles
@@ -497,6 +499,7 @@ onclick
 online
 openid
 openjdk
+openocd
 openssl
 opensymphony
 optnone
@@ -518,6 +521,7 @@ pctincrease
 pctthreshold
 pctused
 pctversion
+perf
 permalink
 petersburg
 pipelined

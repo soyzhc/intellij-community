@@ -299,10 +299,14 @@ public class DebugProcessEvents extends DebugProcessImpl {
     return null;
   }
 
-  private static void enableNonSuspendingRequest(EventRequest request, Consumer<Event> handler) {
-    request.setSuspendPolicy(EventRequest.SUSPEND_NONE);
+  public static void enableRequestWithHandler(EventRequest request, Consumer<Event> handler) {
     request.putProperty(REQUEST_HANDLER, handler);
     request.enable();
+  }
+
+  private static void enableNonSuspendingRequest(EventRequest request, Consumer<Event> handler) {
+    request.setSuspendPolicy(EventRequest.SUSPEND_NONE);
+    enableRequestWithHandler(request, handler);
   }
 
   private void processVMStartEvent(final SuspendContextImpl suspendContext, VMStartEvent event) {
@@ -437,7 +441,6 @@ public class DebugProcessEvents extends DebugProcessImpl {
     //LOG.assertTrue(thread.isSuspended());
     preprocessEvent(suspendContext, thread);
 
-    //noinspection HardCodedStringLiteral
     RequestHint hint = getRequestHint(event);
 
     deleteStepRequests(event.thread());

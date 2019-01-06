@@ -87,7 +87,6 @@ import static com.intellij.openapi.externalSystem.util.ExternalSystemUtil.getCon
 
 /**
  * @author Denis Zhdanov
- * @since 23.05.13 18:30
  */
 public class ExternalSystemRunConfiguration extends LocatableConfigurationBase implements SearchScopeProvidingRunProfile,
                                                                                           SMRunnerConsolePropertiesProvider {
@@ -134,7 +133,7 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
     if (e != null) {
       mySettings = XmlSerializer.deserialize(e, ExternalSystemTaskExecutionSettings.class);
     }
-    JavaRunConfigurationExtensionManager javaRunConfigurationExtensionManager = JavaRunConfigurationExtensionManager.getInstance();
+    JavaRunConfigurationExtensionManager javaRunConfigurationExtensionManager = JavaRunConfigurationExtensionManager.getInstanceOrNull();
     if (javaRunConfigurationExtensionManager != null) {
       javaRunConfigurationExtensionManager.readExternal(this, element);
     }
@@ -157,7 +156,7 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
         }
       }
     }));
-    JavaRunConfigurationExtensionManager javaRunConfigurationExtensionManager = JavaRunConfigurationExtensionManager.getInstance();
+    JavaRunConfigurationExtensionManager javaRunConfigurationExtensionManager = JavaRunConfigurationExtensionManager.getInstanceOrNull();
     if (javaRunConfigurationExtensionManager != null) {
       javaRunConfigurationExtensionManager.writeExternal(this, element);
     }
@@ -174,7 +173,7 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
     SettingsEditorGroup<ExternalSystemRunConfiguration> group = new SettingsEditorGroup<>();
     group.addEditor(ExecutionBundle.message("run.configuration.configuration.tab.title"),
                     new ExternalSystemRunConfigurationEditor(getProject(), mySettings.getExternalSystemId()));
-    JavaRunConfigurationExtensionManager javaRunConfigurationExtensionManager = JavaRunConfigurationExtensionManager.getInstance();
+    JavaRunConfigurationExtensionManager javaRunConfigurationExtensionManager = JavaRunConfigurationExtensionManager.getInstanceOrNull();
     if (javaRunConfigurationExtensionManager != null) {
       javaRunConfigurationExtensionManager.appendEditors(this, group);
     }
@@ -327,7 +326,7 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
         progressListener == null || buildOutputParsers.isEmpty() ? null :
         new BuildOutputInstantReaderImpl(task.getId(), progressListener, buildOutputParsers);
 
-      JavaRunConfigurationExtensionManager javaRunConfigurationExtensionManager = JavaRunConfigurationExtensionManager.getInstance();
+      JavaRunConfigurationExtensionManager javaRunConfigurationExtensionManager = JavaRunConfigurationExtensionManager.getInstanceOrNull();
       if (javaRunConfigurationExtensionManager != null) {
         javaRunConfigurationExtensionManager.attachExtensionsToProcess(myConfiguration, processHandler, myEnv.getRunnerSettings());
       }

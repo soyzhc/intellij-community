@@ -18,8 +18,8 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.mac.foundation.MacUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.DoubleArrayList;
 import com.intellij.util.containers.Stack;
+import gnu.trove.TDoubleArrayList;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -28,7 +28,7 @@ import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
 
-public class AbstractProgressIndicatorBase extends UserDataHolderBase implements ProgressIndicatorStacked {
+public class AbstractProgressIndicatorBase extends UserDataHolderBase implements ProgressIndicator {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.progress.util.ProgressIndicatorBase");
 
   private volatile String myText;
@@ -40,12 +40,12 @@ public class AbstractProgressIndicatorBase extends UserDataHolderBase implements
   private volatile boolean myFinished;
 
   private volatile boolean myIndeterminate = Registry.is("ide.progress.indeterminate.by.default", true);
-  private volatile Object myMacActivity;
+  private volatile MacUtil.Activity myMacActivity;
   private volatile boolean myShouldStartActivity = true;
 
-  private Stack<String> myTextStack;
-  private DoubleArrayList myFractionStack;
-  private Stack<String> myText2Stack;
+  private Stack<String> myTextStack; // guarded by this
+  private TDoubleArrayList myFractionStack; // guarded by this
+  private Stack<String> myText2Stack; // guarded by this
 
   ProgressIndicator myModalityProgress;
   private volatile ModalityState myModalityState = ModalityState.NON_MODAL;
@@ -86,13 +86,13 @@ public class AbstractProgressIndicatorBase extends UserDataHolderBase implements
   }
 
   private void startSystemActivity() {
-    myMacActivity = myShouldStartActivity ? MacUtil.wakeUpNeo(toString()) : null;
+    myMacActivity = myShouldStartActivity ? MacUtil.wakeUpNeo(this) : null;
   }
 
-  synchronized void stopSystemActivity() {
-    Object macActivity = myMacActivity;
+  void stopSystemActivity() {
+    MacUtil.Activity macActivity = myMacActivity;
     if (macActivity != null) {
-      MacUtil.matrixHasYou(macActivity);
+      macActivity.matrixHasYou();
       myMacActivity = null;
     }
   }
@@ -265,7 +265,6 @@ public class AbstractProgressIndicatorBase extends UserDataHolderBase implements
     return isModal();
   }
 
-  @Override
   public synchronized void initStateFrom(@NotNull final ProgressIndicator indicator) {
     myRunning = indicator.isRunning();
     myCanceled = indicator.isCanceled();
@@ -277,36 +276,40 @@ public class AbstractProgressIndicatorBase extends UserDataHolderBase implements
 
     myFraction = indicator.getFraction();
 
-    if (indicator instanceof ProgressIndicatorStacked) {
-      ProgressIndicatorStacked stacked = (ProgressIndicatorStacked)indicator;
+    if (indicator instanceof AbstractProgressIndicatorBase) {
+      AbstractProgressIndicatorBase stacked = (AbstractProgressIndicatorBase)indicator;
 
-      myTextStack = new Stack<>(stacked.getTextStack());
+      myTextStack = stacked.myTextStack == null ? null : new Stack<>(stacked.getTextStack());
 
-      myText2Stack = new Stack<>(stacked.getText2Stack());
+      myText2Stack = stacked.myText2Stack == null ? null : new Stack<>(stacked.getText2Stack());
 
-      myFractionStack = new DoubleArrayList(stacked.getFractionStack());
+      myFractionStack = stacked.myFractionStack == null ? null : new TDoubleArrayList(stacked.getFractionStack().toNativeArray());
     }
+    dontStartActivity();
+  }
+
+  protected void dontStartActivity() {
     myShouldStartActivity = false;
   }
 
-  @Override
   @NotNull
-  public synchronized Stack<String> getTextStack() {
-    if (myTextStack == null) myTextStack = new Stack<>(2);
-    return myTextStack;
+  private Stack<String> getTextStack() {
+    Stack<String> stack = myTextStack;
+    if (stack == null) myTextStack = stack = new Stack<>(2);
+    return stack;
   }
 
-  @Override
   @NotNull
-  public synchronized DoubleArrayList getFractionStack() {
-    if (myFractionStack == null) myFractionStack = new DoubleArrayList(2);
-    return myFractionStack;
+  private TDoubleArrayList getFractionStack() {
+    TDoubleArrayList stack = myFractionStack;
+    if (stack == null) myFractionStack = stack = new TDoubleArrayList(2);
+    return stack;
   }
 
-  @Override
   @NotNull
-  public synchronized Stack<String> getText2Stack() {
-    if (myText2Stack == null) myText2Stack = new Stack<>(2);
-    return myText2Stack;
+  private Stack<String> getText2Stack() {
+    Stack<String> stack = myText2Stack;
+    if (stack == null) myText2Stack = stack = new Stack<>(2);
+    return stack;
   }
 }

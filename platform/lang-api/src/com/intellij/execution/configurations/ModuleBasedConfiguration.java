@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations;
 
 import com.intellij.configurationStore.ComponentSerializationUtil;
@@ -12,6 +12,7 @@ import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.xmlb.annotations.Transient;
 import gnu.trove.THashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -53,7 +54,6 @@ public abstract class ModuleBasedConfiguration<ConfigurationModule extends RunCo
   @NotNull
   @Override
   protected ModuleBasedConfigurationOptions getOptions() {
-    //noinspection unchecked
     return (ModuleBasedConfigurationOptions)super.getOptions();
   }
 
@@ -69,6 +69,7 @@ public abstract class ModuleBasedConfiguration<ConfigurationModule extends RunCo
     return myModule;
   }
 
+  @Transient
   public void setModule(final Module module) {
     getConfigurationModule().setModule(module);
   }
@@ -118,10 +119,10 @@ public abstract class ModuleBasedConfiguration<ConfigurationModule extends RunCo
   @Override
   public void loadState(@NotNull T state) {
     super.loadState(state);
-    
+
     myModule.setModuleName(getOptions().getModule());
   }
-  
+
   @Override
   public void readExternal(@NotNull Element element) throws InvalidDataException {
     super.readExternal(element);
@@ -162,7 +163,7 @@ public abstract class ModuleBasedConfiguration<ConfigurationModule extends RunCo
         configuration.doCopyOptionsFrom(this);
       }
     }
-    
+
     if (isUseReadWriteExternal) {
       final Element element = new Element(TO_CLONE_ELEMENT_NAME);
       try {
@@ -172,7 +173,6 @@ public abstract class ModuleBasedConfiguration<ConfigurationModule extends RunCo
         // so, we have to call copyFrom to ensure that state is fully cloned
         // MUST BE AFTER readExternal because readExternal set options to a new instance
         configuration.setAllowRunningInParallel(isAllowRunningInParallel());
-        return configuration;
       }
       catch (InvalidDataException | WriteExternalException e) {
         LOG.error(e);

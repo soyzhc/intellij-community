@@ -11,37 +11,46 @@ import java.util.*;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.stream.Collector;
-import java.util.stream.Collectors;
 
 /**
  * Single thread implementation of {@link SESearcher}.
- * Being used only as a temporary solution in case of problems with {@link MultithreadSearcher}.
+ * Being used only as a temporary solution in case of problems with {@link MultiThreadSearcher}.
  */
 @Deprecated
 class SingleThreadSearcher implements SESearcher {
 
   private final Executor myNotificationExecutor;
   private final Listener myNotificationListener;
+  @NotNull private final SEResultsEqualityProvider myEqualityProvider;
 
-  SingleThreadSearcher(Listener listener, Executor executor) {
+  SingleThreadSearcher(Listener listener,
+                       Executor executor,
+                       @NotNull Collection<SEResultsEqualityProvider> equalityProviders) {
     myNotificationExecutor = executor;
     myNotificationListener = listener;
+    myEqualityProvider = SEResultsEqualityProvider.composite(equalityProviders);
   }
 
   @Override
-  public ProgressIndicator search(Map<SearchEverywhereContributor<?>, Integer> contributorsAndLimits, String pattern, boolean useNonProjectItems,
-                                  Function<SearchEverywhereContributor<?>, SearchEverywhereContributorFilter<?>> filterSupplier) {
+  public ProgressIndicator search(@NotNull Map<? extends SearchEverywhereContributor<?>, Integer> contributorsAndLimits,
+                                  @NotNull String pattern,
+                                  boolean useNonProjectItems,
+                                  @NotNull Function<? super SearchEverywhereContributor<?>, ? extends SearchEverywhereContributorFilter<?>> filterSupplier) {
     ProgressIndicator indicator = new ProgressIndicatorBase();
-    Runnable task = new SearchTask(contributorsAndLimits, pattern, useNonProjectItems, filterSupplier, indicator, myNotificationExecutor, myNotificationListener);
+    Runnable task = new SearchTask(contributorsAndLimits, pattern, useNonProjectItems, filterSupplier, indicator, myNotificationExecutor,
+                                   myNotificationListener, myEqualityProvider);
     ApplicationManager.getApplication().executeOnPooledThread(ConcurrencyUtil.underThreadNameRunnable("SE-SingleThread-SearchTask", task));
 
     return indicator;
   }
 
   @Override
-  public ProgressIndicator findMoreItems(Map<SearchEverywhereContributor<?>, Collection<ElementInfo>> alreadyFound, String pattern,
-                                         boolean useNonProjectItems, SearchEverywhereContributor<?> contributorToExpand, int newLimit,
-                                         Function<SearchEverywhereContributor<?>, SearchEverywhereContributorFilter<?>> filterSupplier) {
+  public ProgressIndicator findMoreItems(@NotNull Map<? extends SearchEverywhereContributor<?>, Collection<ElementInfo>> alreadyFound,
+                                         @NotNull String pattern,
+                                         boolean useNonProjectItems,
+                                         @NotNull SearchEverywhereContributor<?> contributorToExpand,
+                                         int newLimit,
+                                         @NotNull Function<? super SearchEverywhereContributor<?>, ? extends SearchEverywhereContributorFilter<?>> filterSupplier) {
     ProgressIndicator indicator = new ProgressIndicatorBase();
     Runnable task = createShowMoreTask(contributorToExpand, newLimit, pattern, useNonProjectItems, alreadyFound, filterSupplier, indicator);
     ApplicationManager.getApplication().executeOnPooledThread(ConcurrencyUtil.underThreadNameRunnable("SE-SingleThread-SearchTask", task));
@@ -54,8 +63,8 @@ class SingleThreadSearcher implements SESearcher {
                                                  int newLimit,
                                                  String pattern,
                                                  boolean useNonProjectItems,
-                                                 Map<SearchEverywhereContributor<?>, Collection<ElementInfo>> alreadyFound,
-                                                 Function<SearchEverywhereContributor<?>, SearchEverywhereContributorFilter<?>> filterSupplier,
+                                                 Map<? extends SearchEverywhereContributor<?>, Collection<ElementInfo>> alreadyFound,
+                                                 Function<? super SearchEverywhereContributor<?>, ? extends SearchEverywhereContributorFilter<?>> filterSupplier,
                                                  ProgressIndicator indicator) {
     List<ElementInfo> alreadyFoundList = alreadyFound.values()
       .stream()
@@ -65,7 +74,7 @@ class SingleThreadSearcher implements SESearcher {
       }));
     return new ShowMoreTask<>(contributorToExpand, newLimit, pattern, useNonProjectItems,
                               (SearchEverywhereContributorFilter<F>) filterSupplier.apply(contributorToExpand), alreadyFoundList, indicator,
-                              myNotificationExecutor, myNotificationListener);
+                              myNotificationExecutor, myNotificationListener, myEqualityProvider);
   }
 
   private static class UpdateInfo {
@@ -76,28 +85,27 @@ class SingleThreadSearcher implements SESearcher {
 
   private static <T> UpdateInfo calculateUpdates(SearchEverywhereContributor<T> contributor, String pattern, int limit, boolean everywhere,
                                                  SearchEverywhereContributorFilter<?> filter, ProgressIndicator progressIndicator,
-                                                 Map<Object, ElementInfo> alreadyFound) {
+                                                 Collection<ElementInfo> alreadyFound, SEResultsEqualityProvider equalityProvider) {
     UpdateInfo res = new UpdateInfo();
 
     contributor.fetchElements(pattern, everywhere, (SearchEverywhereContributorFilter<T>) filter, progressIndicator, newElement -> {
+      if (newElement == null) {
+        return true;
+      }
+
       if (res.addedElements.size() >= limit) {
         res.hasMore = true;
         return false;
       }
 
       int priority = contributor.getElementPriority(newElement, pattern);
-      ElementInfo found = alreadyFound.get(newElement);
-      if (found != null) {
-        if (found.priority < priority) {
-          res.removedElements.add(found);
-          alreadyFound.remove(newElement);
-        } else {
-          return true;
-        }
-      }
       ElementInfo newInfo = new ElementInfo(newElement, priority, contributor);
+      boolean shouldBeAdded = processSameElements(newInfo, alreadyFound, res, equalityProvider);
+      if (!shouldBeAdded) {
+        return true;
+      }
       res.addedElements.add(newInfo);
-      alreadyFound.put(newElement, newInfo);
+      alreadyFound.add(newInfo);
 
       return true;
     });
@@ -105,23 +113,57 @@ class SingleThreadSearcher implements SESearcher {
     return res;
   }
 
+  /**
+   * @return true if new element should be added to result or false if it should be skipped
+   */
+  private static boolean processSameElements(ElementInfo newInfo, Collection<ElementInfo> alreadyFound, UpdateInfo res, SEResultsEqualityProvider equalityProvider) {
+    Map<SEResultsEqualityProvider.Action, Collection<ElementInfo>> sameItemsMap = new EnumMap<>(SEResultsEqualityProvider.Action.class);
+    sameItemsMap.put(SEResultsEqualityProvider.Action.SKIP, new ArrayList<>());
+    sameItemsMap.put(SEResultsEqualityProvider.Action.REPLACE, new ArrayList<>());
+
+    alreadyFound.forEach(info -> {
+      SEResultsEqualityProvider.Action action = equalityProvider.compareItems(newInfo, info);
+      if (action != SEResultsEqualityProvider.Action.DO_NOTHING) {
+        sameItemsMap.get(action).add(info);
+      }
+    });
+
+    Collection<ElementInfo> toReplace = sameItemsMap.get(SEResultsEqualityProvider.Action.REPLACE);
+    if (!toReplace.isEmpty()) {
+      toReplace.forEach(info -> {
+        res.removedElements.add(info);
+        alreadyFound.remove(info);
+      });
+      return true;
+    }
+
+    return sameItemsMap.get(SEResultsEqualityProvider.Action.SKIP).isEmpty();
+  }
+
   private static class SearchTask implements Runnable {
-    private final Map<SearchEverywhereContributor<?>, Integer> myContributorsAndLimits;
+    private final Map<? extends SearchEverywhereContributor<?>, Integer> myContributorsAndLimits;
     private final String myPattern;
     private final boolean myUseNonProjectItems;
-    private final Function<SearchEverywhereContributor<?>, SearchEverywhereContributorFilter<?>> myFilterSupplier;
+    private final Function<? super SearchEverywhereContributor<?>, ? extends SearchEverywhereContributorFilter<?>> myFilterSupplier;
+    private final SEResultsEqualityProvider myEqualityProvider;
 
     private final ProgressIndicator myProgressIndicator;
     private final Executor notificationExecutor;
     private final Listener notificationListener;
 
-    SearchTask(Map<SearchEverywhereContributor<?>, Integer> contributorsAndLimits, String pattern, boolean useNonProjectItems,
-                      Function<SearchEverywhereContributor<?>, SearchEverywhereContributorFilter<?>> filterSupplier,
-                      ProgressIndicator progressIndicator, Executor notificationExecutor, Listener notificationListener) {
+    SearchTask(Map<? extends SearchEverywhereContributor<?>, Integer> contributorsAndLimits,
+               String pattern,
+               boolean useNonProjectItems,
+               Function<? super SearchEverywhereContributor<?>, ? extends SearchEverywhereContributorFilter<?>> filterSupplier,
+               ProgressIndicator progressIndicator,
+               Executor notificationExecutor,
+               Listener notificationListener,
+               SEResultsEqualityProvider equalityProvider) {
       myContributorsAndLimits = contributorsAndLimits;
       myPattern = pattern;
       myUseNonProjectItems = useNonProjectItems;
       myFilterSupplier = filterSupplier;
+      myEqualityProvider = equalityProvider;
       myProgressIndicator = progressIndicator;
       this.notificationExecutor = notificationExecutor;
       this.notificationListener = notificationListener;
@@ -130,7 +172,7 @@ class SingleThreadSearcher implements SESearcher {
     @Override
     public void run() {
       Map<SearchEverywhereContributor<?>, Boolean> hasMoreContributors = new HashMap<>();
-      Map<Object, ElementInfo> alreadyFound = new HashMap<>();
+      Collection<ElementInfo> alreadyFound = new ArrayList<>();
 
       myContributorsAndLimits.entrySet()
         .stream()
@@ -138,7 +180,7 @@ class SingleThreadSearcher implements SESearcher {
         .forEach(entry -> {
           SearchEverywhereContributor<?> contributor = entry.getKey();
           UpdateInfo updates = calculateUpdates(contributor, myPattern, entry.getValue(), myUseNonProjectItems,
-                                                myFilterSupplier.apply(contributor), myProgressIndicator, alreadyFound);
+                                                myFilterSupplier.apply(contributor), myProgressIndicator, alreadyFound, myEqualityProvider);
           notificationExecutor.execute(() -> notificationListener.elementsAdded(updates.addedElements));
           notificationExecutor.execute(() -> notificationListener.elementsRemoved(updates.removedElements));
           hasMoreContributors.put(contributor, updates.hasMore);
@@ -159,10 +201,18 @@ class SingleThreadSearcher implements SESearcher {
     private final ProgressIndicator myProgressIndicator;
     private final Executor notificationExecutor;
     private final Listener notificationListener;
+    private final SEResultsEqualityProvider myEqualityProvider;
 
-    private ShowMoreTask(SearchEverywhereContributor<F> contributor, int limit, String pattern, boolean useNonProjectItems,
-                         SearchEverywhereContributorFilter<F> filter, List<ElementInfo> alreadyFound, ProgressIndicator indicator,
-                         Executor executor, Listener listener) {
+    private ShowMoreTask(SearchEverywhereContributor<F> contributor,
+                         int limit,
+                         String pattern,
+                         boolean useNonProjectItems,
+                         SearchEverywhereContributorFilter<F> filter,
+                         List<ElementInfo> alreadyFound,
+                         ProgressIndicator indicator,
+                         Executor executor,
+                         Listener listener,
+                         SEResultsEqualityProvider equalityProvider) {
       myContributor = contributor;
       myLimit = limit;
       myPattern = pattern;
@@ -172,12 +222,13 @@ class SingleThreadSearcher implements SESearcher {
       myProgressIndicator = indicator;
       notificationExecutor = executor;
       notificationListener = listener;
+      myEqualityProvider = equalityProvider;
     }
 
     @Override
     public void run() {
-      Map<Object, ElementInfo> alreadyFoundMap = myAlreadyFound.stream().collect(Collectors.toMap(info -> info.element, Function.identity()));
-      UpdateInfo updates = calculateUpdates(myContributor, myPattern, myLimit, myUseNonProjectItems, myFilter, myProgressIndicator, alreadyFoundMap);
+      UpdateInfo updates = calculateUpdates(myContributor, myPattern, myLimit, myUseNonProjectItems, myFilter, myProgressIndicator,
+                                            new ArrayList<>(myAlreadyFound), myEqualityProvider);
       notificationExecutor.execute(() -> notificationListener.elementsAdded(updates.addedElements));
       notificationExecutor.execute(() -> notificationListener.elementsRemoved(updates.removedElements));
       notificationExecutor.execute(() -> notificationListener.searchFinished(Collections.singletonMap(myContributor, updates.hasMore)));

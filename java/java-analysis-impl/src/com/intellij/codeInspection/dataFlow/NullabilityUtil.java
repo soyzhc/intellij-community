@@ -26,10 +26,16 @@ import java.util.List;
 public class NullabilityUtil {
 
   static DfaNullability calcCanBeNull(DfaVariableValue value) {
-    if (value.getSource() instanceof DfaExpressionFactory.ThisSource) {
+    if (value.getDescriptor() instanceof DfaExpressionFactory.ThisDescriptor) {
       return DfaNullability.NOT_NULL;
     }
+    if (value.getDescriptor() == SpecialField.OPTIONAL_VALUE) {
+      return DfaNullability.NULLABLE;
+    }
     PsiModifierListOwner var = value.getPsiVariable();
+    if (value.getType() instanceof PsiPrimitiveType) {
+      return null;
+    }
     Nullability nullability = DfaPsiUtil.getElementNullabilityIgnoringParameterInference(value.getType(), var);
     if (nullability != Nullability.UNKNOWN) {
       return DfaNullability.fromNullability(nullability);
@@ -99,8 +105,7 @@ public class NullabilityUtil {
 
     if (!isCheapEnoughToSearch(field, name)) return false;
 
-    return ReferencesSearch
-      .search(field).forEach(
+    return ReferencesSearch.search(field).allMatch(
         reference -> reference instanceof PsiReferenceExpression && !PsiUtil.isAccessedForWriting((PsiReferenceExpression)reference));
   }
 

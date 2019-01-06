@@ -9,8 +9,8 @@ import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileCopyEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import com.intellij.util.concurrency.SynchronizedClearableLazy
 import com.intellij.util.containers.ContainerUtil
-import com.intellij.util.io.exists
 import com.intellij.util.io.inputStreamIfExists
 import org.yaml.snakeyaml.nodes.MappingNode
 import org.yaml.snakeyaml.parser.ParserImpl
@@ -105,9 +105,9 @@ internal fun isConfigurationFile(file: VirtualFile): Boolean {
  * not-null doesn't mean that you should not expect NoSuchFileException
  */
 private fun findConfigurationFile(project: Project): Path? {
-  val projectIdeaDir = Paths.get(project.basePath)
+  val projectIdeaDir = Paths.get(project.basePath ?: return null)
   var file = projectIdeaDir.resolve("intellij.yaml")
-  if (!file.exists()) {
+  if (!file.toFile().exists()) {
     // do not check file exists - on read we in any case should check NoSuchFileException
     file = projectIdeaDir.resolve("intellij.yml")
   }

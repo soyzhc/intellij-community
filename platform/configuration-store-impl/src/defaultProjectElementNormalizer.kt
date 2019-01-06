@@ -4,12 +4,12 @@ package com.intellij.configurationStore
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.StateStorage
 import com.intellij.openapi.components.StoragePathMacros
+import com.intellij.openapi.components.impl.ComponentManagerImpl
 import com.intellij.openapi.components.impl.ServiceManagerImpl
 import com.intellij.openapi.components.impl.stores.StoreUtil
 import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.module.impl.ModuleManagerImpl
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.impl.ProjectImpl
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.util.*
@@ -34,14 +34,14 @@ internal fun normalizeDefaultProjectElement(defaultProject: Project, element: El
       fun writeProfileSettings(schemeDir: Path) {
         component.removeAttribute("name")
         if (!component.isEmpty()) {
-          val wrapper = Element("component").attribute("name", componentName)
+          val wrapper = Element("component").setAttribute("name", componentName)
           component.name = "settings"
           wrapper.addContent(component)
 
           val file = schemeDir.resolve("profiles_settings.xml")
           if (file.fileSystem == FileSystems.getDefault()) {
             // VFS must be used to write workspace.xml and misc.xml to ensure that project files will be not reloaded on external file change event
-            writeFile(file, fakeSaveSession, null, createDataWriterForElement(wrapper), LineSeparator.LF, prependXmlProlog = false)
+            writeFile(file, fakeSaveSession, null, createDataWriterForElement(wrapper, "default project"), LineSeparator.LF, prependXmlProlog = false)
           }
           else {
             file.outputStream().use {
@@ -80,7 +80,7 @@ private fun convertProfiles(profileIterator: MutableIterator<Element>, component
     val schemeName = profile.getChildren("option").find { it.getAttributeValue("name") == "myName" }?.getAttributeValue("value") ?: continue
 
     profileIterator.remove()
-    val wrapper = Element("component").attribute("name", componentName)
+    val wrapper = Element("component").setAttribute("name", componentName)
     wrapper.addContent(profile)
     val path = schemeDir.resolve("${FileUtil.sanitizeFileName(schemeName, true)}.xml")
     JDOMUtil.write(wrapper, path.outputStream(), "\n")
@@ -116,7 +116,7 @@ internal fun moveComponentConfiguration(defaultProject: Project, element: Elemen
     processComponents(it.javaClass)
   }
 
-  ServiceManagerImpl.processAllImplementationClasses(defaultProject as ProjectImpl) { aClass, _ ->
+  ServiceManagerImpl.processAllImplementationClasses(defaultProject as ComponentManagerImpl) { aClass, _ ->
     processComponents(aClass)
     true
   }
@@ -144,7 +144,7 @@ private fun writeConfigFile(elements: List<Element>, file: Path) {
     return
   }
 
-  var wrapper = Element("project").attribute("version", "4")
+  var wrapper = Element("project").setAttribute("version", "4")
   if (file.exists()) {
     try {
       wrapper = loadElement(file)
@@ -157,7 +157,7 @@ private fun writeConfigFile(elements: List<Element>, file: Path) {
   // .idea component configuration files uses XML prolog due to historical reasons
   if (file.fileSystem == FileSystems.getDefault()) {
     // VFS must be used to write workspace.xml and misc.xml to ensure that project files will be not reloaded on external file change event
-    writeFile(file, fakeSaveSession, null, createDataWriterForElement(wrapper), LineSeparator.LF, prependXmlProlog = true)
+    writeFile(file, fakeSaveSession, null, createDataWriterForElement(wrapper, "default project"), LineSeparator.LF, prependXmlProlog = true)
   }
   else {
     file.outputStream().use {

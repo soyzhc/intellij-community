@@ -2,33 +2,38 @@
 package org.jetbrains.plugins.github.pullrequest.ui
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.util.Disposer
 import com.intellij.ui.OnePixelSplitter
-import org.jetbrains.plugins.github.pullrequest.config.GithubPullRequestsUISettings
+import org.jetbrains.plugins.github.pullrequest.data.GithubPullRequestDataProvider
+import org.jetbrains.plugins.github.pullrequest.ui.details.GithubPullRequestDetailsComponent
 
-class GithubPullRequestPreviewComponent(private val uiSettings: GithubPullRequestsUISettings,
-                                        changes: GithubPullRequestChangesComponent,
-                                        private val details: GithubPullRequestDetailsComponent)
-  : OnePixelSplitter(true, "Github.PullRequest.Preview.Component", 0.6f),
-    Disposable, GithubPullRequestsUISettings.SettingsChangedListener {
+internal class GithubPullRequestPreviewComponent(private val changes: GithubPullRequestChangesComponent,
+                                                 private val details: GithubPullRequestDetailsComponent)
+  : OnePixelSplitter("Github.PullRequest.Preview.Component", 0.5f), Disposable {
 
-  val toolbarComponent = changes.toolbarComponent
+  private var currentProvider: GithubPullRequestDataProvider? = null
+
+  private val requestChangesListener = object : GithubPullRequestDataProvider.RequestsChangedListener {
+    override fun detailsRequestChanged() {
+      details.loadAndUpdate(currentProvider!!.detailsRequest)
+    }
+
+    override fun commitsRequestChanged() {
+      changes.loadAndUpdate(currentProvider!!.logCommitsRequest)
+    }
+  }
 
   init {
-    Disposer.register(this, changes)
-    Disposer.register(this, details)
-
-    firstComponent = changes
-    uiSettings.addChangesListener(this, this)
-    updateDetails()
+    firstComponent = details
+    secondComponent = changes
   }
 
-  override fun settingsChanged() {
-    updateDetails()
-  }
+  fun setPreviewDataProvider(provider: GithubPullRequestDataProvider?) {
+    currentProvider?.removeRequestsChangesListener(requestChangesListener)
+    currentProvider = provider
+    currentProvider?.addRequestsChangesListener(requestChangesListener)
 
-  private fun updateDetails() {
-    secondComponent = if (uiSettings.showDetails) details else null
+    changes.loadAndShow(provider?.logCommitsRequest)
+    details.loadAndShow(provider?.detailsRequest)
   }
 
   override fun dispose() {}

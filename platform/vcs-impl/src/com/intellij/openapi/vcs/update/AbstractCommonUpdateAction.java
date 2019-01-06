@@ -22,6 +22,7 @@ import com.intellij.ide.errorTreeView.HotfixData;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
 import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.actionSystem.UpdateInBackground;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.Configurable;
@@ -63,7 +64,7 @@ import static com.intellij.openapi.util.text.StringUtil.pluralize;
 import static com.intellij.openapi.vcs.VcsNotifier.STANDARD_NOTIFICATION;
 import static com.intellij.util.ObjectUtils.notNull;
 
-public abstract class AbstractCommonUpdateAction extends AbstractVcsAction {
+public abstract class AbstractCommonUpdateAction extends AbstractVcsAction implements UpdateInBackground {
   private final boolean myAlwaysVisible;
   private final static Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.update.AbstractCommonUpdateAction");
 
@@ -128,7 +129,7 @@ public abstract class AbstractCommonUpdateAction extends AbstractVcsAction {
     }
   }
 
-  private boolean canGroupByChangelist(final Set<AbstractVcs> abstractVcses) {
+  private boolean canGroupByChangelist(final Set<? extends AbstractVcs> abstractVcses) {
     if (myActionInfo.canGroupByChangelist()) {
       for(AbstractVcs vcs: abstractVcses) {
         if (vcs.getCachingCommittedChangesProvider() != null) {
@@ -139,7 +140,7 @@ public abstract class AbstractCommonUpdateAction extends AbstractVcsAction {
     return false;
   }
 
-  private static boolean someSessionWasCanceled(List<UpdateSession> updateSessions) {
+  private static boolean someSessionWasCanceled(List<? extends UpdateSession> updateSessions) {
     for (UpdateSession updateSession : updateSessions) {
       if (updateSession.isCanceled()) {
         return true;
@@ -400,7 +401,7 @@ public abstract class AbstractCommonUpdateAction extends AbstractVcsAction {
       }
     }
 
-    private void putExceptions(final HotfixData key, @NotNull final List<VcsException> list) {
+    private void putExceptions(final HotfixData key, @NotNull final List<? extends VcsException> list) {
       if (list.isEmpty()) return;
       myGroupedExceptions.computeIfAbsent(key, k -> new ArrayList<>()).addAll(list);
     }
@@ -424,7 +425,7 @@ public abstract class AbstractCommonUpdateAction extends AbstractVcsAction {
     @NotNull
     private Notification prepareNotification(@NotNull UpdateInfoTree tree,
                                              boolean someSessionWasCancelled,
-                                             @NotNull List<UpdateSession> updateSessions) {
+                                             @NotNull List<? extends UpdateSession> updateSessions) {
       int allFiles = getUpdatedFilesCount();
       String additionalContent = nullize(updateSessions.stream().
         map(UpdateSession::getAdditionalNotificationContent).

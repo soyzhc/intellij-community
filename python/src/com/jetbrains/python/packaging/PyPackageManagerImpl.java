@@ -28,20 +28,20 @@ import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.net.HttpConfigurable;
 import com.jetbrains.python.PythonHelpersLocator;
 import com.jetbrains.python.psi.LanguageLevel;
-import com.jetbrains.python.sdk.PyDetectedSdk;
-import com.jetbrains.python.sdk.PyLazySdk;
-import com.jetbrains.python.sdk.PythonEnvUtil;
-import com.jetbrains.python.sdk.PythonSdkType;
+import com.jetbrains.python.sdk.*;
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 /**
  * @author vlan
@@ -67,6 +67,7 @@ public class PyPackageManagerImpl extends PyPackageManager {
   private static final String INSTALL = "install";
   private static final String UNINSTALL = "uninstall";
   private static final String UNTAR = "untar";
+  protected String mySeparator = File.separator;
 
   @Nullable private volatile List<PyPackage> myPackagesCache = null;
   private final AtomicBoolean myUpdatingCache = new AtomicBoolean(false);
@@ -126,7 +127,7 @@ public class PyPackageManagerImpl extends PyPackageManager {
   protected void installManagement(@NotNull String name) throws ExecutionException {
     final String dirName = extractHelper(name + ".tar.gz");
     try {
-      final String fileName = dirName + name + File.separatorChar + "setup.py";
+      final String fileName = dirName + name +mySeparator + "setup.py";
       getPythonProcessResult(fileName, Collections.singletonList(INSTALL), true, true, dirName + name);
     }
     finally {
@@ -139,11 +140,17 @@ public class PyPackageManagerImpl extends PyPackageManager {
     final String helperPath = getHelperPath(name);
     final ArrayList<String> args = Lists.newArrayList(UNTAR, helperPath);
     final String result = getHelperResult(PACKAGING_TOOL, args, false, false, null);
-    String dirName = FileUtil.toSystemDependentName(result.trim());
-    if (!dirName.endsWith(File.separator)) {
-      dirName += File.separator;
+    String dirName = toSystemDependentName(result.trim());
+    if (!dirName.endsWith(mySeparator)) {
+      dirName += mySeparator;
     }
     return dirName;
+  }
+
+
+  @NotNull
+  protected String toSystemDependentName(@NotNull final String dirName) {
+    return FileUtil.toSystemDependentName(dirName);
   }
 
   protected PyPackageManagerImpl(@NotNull final Sdk sdk) {
@@ -220,27 +227,14 @@ public class PyPackageManagerImpl extends PyPackageManager {
       for (PyRequirement req : requirements) {
         simplifiedArgs.addAll(req.getInstallOptions());
       }
-      throw new PyExecutionException(e.getMessage(), "pip", simplifiedArgs, e.getStdout(), e.getStderr(), e.getExitCode(), e.getFixes());
+      throw new PyExecutionException(e.getMessage(), "pip", makeSafeToDisplayCommand(simplifiedArgs), 
+                                     e.getStdout(), e.getStderr(), e.getExitCode(), e.getFixes());
     }
     finally {
       LOG.debug("Packages cache is about to be refreshed because these requirements were installed: " + requirements);
       refreshPackagesSynchronously();
       FileUtil.delete(buildDir);
     }
-  }
-
-  @NotNull
-  private String getWriteAccessAnchorPath() throws ExecutionException {
-    final VirtualFile sitePackagesDir = PythonSdkType.getSitePackagesDirectory(mySdk);
-    if (sitePackagesDir == null) {
-      // Perhaps a system interpreter on Linux that has only "dist-packages", use executable path as a fallback then
-      final String homePath = mySdk.getHomePath();
-      if (homePath == null) {
-        throw new ExecutionException("Cannot find Python interpreter for SDK " + mySdk.getName());
-      }
-      return homePath;
-    }
-    return sitePackagesDir.getPath();
   }
 
   @Override
@@ -345,7 +339,7 @@ public class PyPackageManagerImpl extends PyPackageManager {
       final String name = "virtualenv-" + (py26 ? VIRTUALENV_VERSION_26 : VIRTUALENV_VERSION);
       final String dirName = extractHelper(name + ".tar.gz");
       try {
-        final String fileName = dirName + name + File.separatorChar + "virtualenv.py";
+        final String fileName = dirName + name + mySeparator + "virtualenv.py";
         getPythonProcessResult(fileName, args, false, true, dirName + name);
       }
       finally {
@@ -354,7 +348,7 @@ public class PyPackageManagerImpl extends PyPackageManager {
     }
 
     final String binary = PythonSdkType.getPythonExecutable(destinationDir);
-    final String binaryFallback = destinationDir + File.separator + "bin" + File.separator + "python";
+    final String binaryFallback = destinationDir + mySeparator + "bin" + mySeparator + "python";
     final String path = (binary != null) ? binary : binaryFallback;
 
     if (usePyVenv) {
@@ -463,7 +457,7 @@ public class PyPackageManagerImpl extends PyPackageManager {
   }
 
   @Nullable
-  protected String getHelperPath(String helper) throws ExecutionException {
+  protected String getHelperPath(@NotNull final String helper) throws ExecutionException {
     return PythonHelpersLocator.getHelperPath(helper);
   }
 
@@ -495,8 +489,8 @@ public class PyPackageManagerImpl extends PyPackageManager {
     cmdline.add(homePath);
     cmdline.add(helperPath);
     cmdline.addAll(args);
-    LOG.info("Running packaging tool: " + StringUtil.join(cmdline, " "));
-
+    LOG.info("Running packaging tool: " + StringUtil.join(makeSafeToDisplayCommand(cmdline), " "));
+    
     try {
       final GeneralCommandLine commandLine = new GeneralCommandLine(cmdline).withWorkDirectory(workingDir);
       final Map<String, String> environment = commandLine.getEnvironment();
@@ -508,7 +502,7 @@ public class PyPackageManagerImpl extends PyPackageManager {
         flavor.commandLinePatcher().patchCommandLine(commandLine);
       }
       final Process process;
-      final boolean useSudo = askForSudo && !Files.isWritable(Paths.get(getWriteAccessAnchorPath()));
+      final boolean useSudo = askForSudo && PySdkExtKt.adminPermissionsNeeded(mySdk);
       if (useSudo) {
         process = ExecUtil.sudo(commandLine, "Please enter your password to make changes in system packages: ");
       }
@@ -541,6 +535,38 @@ public class PyPackageManagerImpl extends PyPackageManager {
     catch (IOException e) {
       throw new PyExecutionException(e.getMessage(), helperPath, args);
     }
+  }
+
+  @NotNull
+  private static List<String> makeSafeToDisplayCommand(@NotNull List<String> cmdline) {
+    final List<String> safeCommand = new ArrayList<>(cmdline);
+    for (int i = 0; i < safeCommand.size(); i++) {
+      if (cmdline.get(i).equals("--proxy") && i + 1 < cmdline.size()) {
+        safeCommand.set(i + 1, makeSafeProxyArgument(cmdline.get(i + 1)));
+      }
+    }
+    return safeCommand;
+  }
+
+  @NotNull
+  private static String makeSafeProxyArgument(@NotNull String proxyArgument) {
+    try {
+      final URI proxyUri = new URI(proxyArgument);
+      final String credentials = proxyUri.getUserInfo();
+      if (credentials != null) {
+        final int colonIndex = credentials.indexOf(":");
+        if (colonIndex >= 0) {
+          final String login = credentials.substring(0, colonIndex);
+          final String password = credentials.substring(colonIndex + 1);
+          final String maskedPassword = StringUtil.repeatSymbol('*', password.length());
+          final String maskedCredentials = login + ":" + maskedPassword;
+          return proxyArgument.replaceFirst(Pattern.quote(credentials), maskedCredentials);
+        }
+      }
+    }
+    catch (URISyntaxException ignored) {
+    }
+    return proxyArgument;
   }
 
   @NotNull

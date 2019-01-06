@@ -9,7 +9,7 @@ import javax.swing.*;
  * NOTE THIS FILE IS AUTO-GENERATED
  * DO NOT EDIT IT BY HAND, run "Generate icon classes" configuration instead
  */
-public class GithubIcons {
+public final class GithubIcons {
   private static Icon load(String path) {
     return IconLoader.getIcon(path, GithubIcons.class);
   }
@@ -18,7 +18,7 @@ public class GithubIcons {
     return IconLoader.getIcon(path, clazz);
   }
 
-  public static final Icon DefaultAvatar_40 = load("/org/jetbrains/plugins/github/defaultAvatar_40.svg"); // 40x40
+  public static final Icon DefaultAvatar = load("/org/jetbrains/plugins/github/defaultAvatar.svg"); // 16x16
   public static final Icon PullRequestClosed = load("/org/jetbrains/plugins/github/pullRequestClosed.svg"); // 16x16
   public static final Icon PullRequestOpen = load("/org/jetbrains/plugins/github/pullRequestOpen.svg"); // 16x16
   public static final Icon PullRequestsToolWindow = load("/org/jetbrains/plugins/github/pullRequestsToolWindow.svg"); // 13x13

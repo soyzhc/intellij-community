@@ -56,7 +56,7 @@ import static javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED;
 class UpdateInfoDialog extends AbstractUpdateDialog {
   private final UpdateChannel myUpdatedChannel;
   private final boolean myForceHttps;
-  private final Collection<PluginDownloader> myUpdatedPlugins;
+  private final Collection<? extends PluginDownloader> myUpdatedPlugins;
   private final BuildInfo myNewBuild;
   private final UpdateChain myPatches;
   private final boolean myWriteProtected;
@@ -68,8 +68,8 @@ class UpdateInfoDialog extends AbstractUpdateDialog {
                    @Nullable UpdateChain patches,
                    boolean enableLink,
                    boolean forceHttps,
-                   @Nullable Collection<PluginDownloader> updatedPlugins,
-                   @Nullable Collection<IdeaPluginDescriptor> incompatiblePlugins) {
+                   @Nullable Collection<? extends PluginDownloader> updatedPlugins,
+                   @Nullable Collection<? extends IdeaPluginDescriptor> incompatiblePlugins) {
     super(enableLink);
     myUpdatedChannel = channel;
     myForceHttps = forceHttps;
@@ -317,18 +317,8 @@ class UpdateInfoDialog extends AbstractUpdateDialog {
       ApplicationNamesInfo appNames = ApplicationNamesInfo.getInstance();
 
       String message = myNewBuild.getMessage();
-      String fullProductName = appNames.getFullProductName();
-      if (StringUtil.isEmpty(message)) {
-        message = IdeBundle.message("updates.new.version.available", fullProductName);
-      }
-      String url = myNewBuild.getDownloadUrl();
-      if (!StringUtil.isEmptyOrSpaces(url)) {
-        int idx = message.indexOf(fullProductName);
-        if (idx >= 0) {
-          message = message.substring(0, idx) +
-                    "<a href=\'" + augmentUrl(url) + "\'>" + fullProductName + "</a>" +
-                    message.substring(idx + fullProductName.length());
-        }
+      if (StringUtil.isEmptyOrSpaces(message)) {
+        message = IdeBundle.message("updates.new.version.available", appNames.getFullProductName());
       }
       configureMessageArea(myUpdateMessage, message, null, BrowserHyperlinkListener.INSTANCE);
 

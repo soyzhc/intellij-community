@@ -50,8 +50,12 @@ public class DataFlowRangeAnalysisTest extends DataFlowInspectionTestCase {
   public void testLongRangeDivShift() { doTest(); }
 
   public void testLongRangePlusMinus() { doTest(); }
+  public void testLongRangeMul() { doTest(); }
   public void testFebruary31() { doTest(); }
 
   public void testManyAdditionsDoNotCauseExponentialBlowUp() { doTest(); }
   public void testBoxedRanges() { doTest(); }
+  public void testLongRangeDiff() { doTest(); }
+  public void testAlgebraic() { doTest(); }
+  public void testTwoArraysDiff() { doTest(); }
 }

@@ -17,6 +17,7 @@ import com.intellij.openapi.util.Pass;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.source.resolve.graphInference.PsiPolyExpressionUtil;
 import com.intellij.psi.util.*;
 import com.intellij.util.ui.JBUI;
 import org.intellij.lang.annotations.Pattern;
@@ -362,6 +363,26 @@ public class UncheckedWarningLocalInspection extends AbstractBaseJavaLocalInspec
     }
 
     @Override
+    public void visitConditionalExpression(PsiConditionalExpression expression) {
+      super.visitConditionalExpression(expression);
+      if (PsiUtil.isLanguageLevel8OrHigher(expression) && PsiPolyExpressionUtil.isPolyExpression(expression)) {
+        PsiType targetType = expression.getType();
+        if (targetType == null) return;
+        processConditionalPart(targetType, expression.getThenExpression());
+        processConditionalPart(targetType, expression.getElseExpression());
+      }
+    }
+
+    private void processConditionalPart(PsiType targetType, PsiExpression thenExpression) {
+      if (thenExpression != null) {
+        PsiType thenType = thenExpression.getType();
+        if (thenType != null) {
+          checkRawToGenericsAssignment(thenExpression, thenExpression, targetType, thenType, () -> myOnTheFly ? myGenerifyFixes : LocalQuickFix.EMPTY_ARRAY);
+        }
+      }
+    }
+
+    @Override
     public void visitArrayInitializerExpression(PsiArrayInitializerExpression arrayInitializer) {
       super.visitArrayInitializerExpression(arrayInitializer);
       if (IGNORE_UNCHECKED_ASSIGNMENT) return;
@@ -486,7 +507,7 @@ public class UncheckedWarningLocalInspection extends AbstractBaseJavaLocalInspec
       final PsiSubstitutor substitutor = resolveResult.getSubstitutor();
       if (!PsiUtil.isRawSubstitutor(method, substitutor)) {
         if (JavaVersionService.getInstance().isAtLeast(place, JavaSdkVersion.JDK_1_8)) {
-          for (PsiTypeParameter parameter : PsiUtil.typeParametersIterable(method)) {
+          for (PsiTypeParameter parameter : method.getTypeParameters()) {
             final PsiClassType[] extendsListTypes = parameter.getExtendsListTypes();
             if (extendsListTypes.length > 0) {
               final PsiType subst = substitutor.substitute(parameter);
@@ -544,7 +565,7 @@ public class UncheckedWarningLocalInspection extends AbstractBaseJavaLocalInspec
             return ellipsisType.getComponentType().accept(this);
           }
         }).booleanValue()) {
-          final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(method.getProject()).getElementFactory();
+          final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(method.getProject());
           PsiType type = elementFactory.createType(method.getContainingClass(), substitutor);
           return JavaErrorMessages.message("generics.unchecked.call.to.member.of.raw.type",
                                                          JavaHighlightUtil.formatMethod(method),

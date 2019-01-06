@@ -56,12 +56,12 @@ public class CommitHelper {
   @NotNull private final Project myProject;
 
   @NotNull private final ChangeList myChangeList;
-  @NotNull private final List<Change> myIncludedChanges;
+  @NotNull private final List<? extends Change> myIncludedChanges;
 
   @NotNull private final String myActionName;
   @NotNull private final String myCommitMessage;
 
-  @NotNull private final List<CheckinHandler> myHandlers;
+  @NotNull private final List<? extends CheckinHandler> myHandlers;
   private final boolean myAllOfDefaultChangeListChangesIncluded;
   private final boolean myForceSyncCommit;
   @NotNull private final NullableFunction<Object, Object> myAdditionalData;
@@ -74,10 +74,10 @@ public class CommitHelper {
   @SuppressWarnings("unused") // Required for compatibility with external plugins.
   public CommitHelper(@NotNull Project project,
                       @NotNull ChangeList changeList,
-                      @NotNull List<Change> includedChanges,
+                      @NotNull List<? extends Change> includedChanges,
                       @NotNull String actionName,
                       @NotNull String commitMessage,
-                      @NotNull List<CheckinHandler> handlers,
+                      @NotNull List<? extends CheckinHandler> handlers,
                       boolean allOfDefaultChangeListChangesIncluded,
                       boolean synchronously,
                       @NotNull NullableFunction<Object, Object> additionalDataHolder,
@@ -88,10 +88,10 @@ public class CommitHelper {
 
   public CommitHelper(@NotNull Project project,
                       @NotNull ChangeList changeList,
-                      @NotNull List<Change> includedChanges,
+                      @NotNull List<? extends Change> includedChanges,
                       @NotNull String actionName,
                       @NotNull String commitMessage,
-                      @NotNull List<CheckinHandler> handlers,
+                      @NotNull List<? extends CheckinHandler> handlers,
                       boolean allOfDefaultChangeListChangesIncluded,
                       boolean synchronously,
                       @NotNull NullableFunction<Object, Object> additionalDataHolder,
@@ -167,7 +167,7 @@ public class CommitHelper {
     }
   }
 
-  static boolean hasOnlyWarnings(@NotNull List<VcsException> exceptions) {
+  static boolean hasOnlyWarnings(@NotNull List<? extends VcsException> exceptions) {
     return exceptions.stream().allMatch(VcsException::isWarning);
   }
 
@@ -211,7 +211,7 @@ public class CommitHelper {
     }
 
     @Override
-    protected void process(@NotNull AbstractVcs vcs, @NotNull List<Change> items) {
+    protected void process(@NotNull AbstractVcs vcs, @NotNull List<? extends Change> items) {
       if (!myVcs.getName().equals(vcs.getName())) return;
       super.process(vcs, items);
     }
@@ -250,11 +250,11 @@ public class CommitHelper {
     public abstract void customRefresh();
     public abstract void doPostRefresh();
 
-    protected void process(@NotNull AbstractVcs vcs, @NotNull List<Change> changes) {
+    protected void process(@NotNull AbstractVcs vcs, @NotNull List<? extends Change> changes) {
       CheckinEnvironment environment = vcs.getCheckinEnvironment();
       if (environment != null) {
         myPathsToRefresh.addAll(ChangesUtil.getPaths(changes));
-        List<VcsException> exceptions = environment.commit(changes, myCommitMessage, myAdditionalData, myFeedback);
+        List<VcsException> exceptions = environment.commit((List)changes, myCommitMessage, myAdditionalData, myFeedback);
         if (!isEmpty(exceptions)) {
           myVcsExceptions.addAll(exceptions);
           myChangesFailedToCommit.addAll(changes);
@@ -357,9 +357,13 @@ public class CommitHelper {
     private void updateChangelistAfterRefresh() {
       if (!(myChangeList instanceof LocalChangeList)) return;
 
-      ChangeListManager clManager = ChangeListManager.getInstance(myProject);
-      LocalChangeList localList = clManager.findChangeList(myChangeList.getName());
+      ChangeListManagerEx clManager = (ChangeListManagerEx)ChangeListManager.getInstance(myProject);
+      String listName = myChangeList.getName();
+
+      LocalChangeList localList = clManager.findChangeList(listName);
       if (localList == null) return;
+
+      clManager.editChangeListData(listName, null);
 
       if (!localList.isDefault()) {
         clManager.scheduleAutomaticEmptyChangeListDeletion(localList);
@@ -394,7 +398,7 @@ public class CommitHelper {
    * @see VetoSavingCommittingDocumentsAdapter
    */
   @NotNull
-  private static Collection<Document> markCommittingDocuments(@NotNull Project project, @NotNull List<Change> changes) {
+  private static Collection<Document> markCommittingDocuments(@NotNull Project project, @NotNull List<? extends Change> changes) {
     Collection<Document> result = newArrayList();
     for (Change change : changes) {
       VirtualFile virtualFile = ChangesUtil.getFilePath(change).getVirtualFile();
@@ -414,11 +418,11 @@ public class CommitHelper {
    * @see #markCommittingDocuments(Project, List)
    * @see VetoSavingCommittingDocumentsAdapter
    */
-  private static void unmarkCommittingDocuments(@NotNull Collection<Document> committingDocs) {
+  private static void unmarkCommittingDocuments(@NotNull Collection<? extends Document> committingDocs) {
     committingDocs.forEach(document -> document.putUserData(DOCUMENT_BEING_COMMITTED_KEY, null));
   }
 
-  private void commitCompleted(@NotNull List<VcsException> allExceptions) {
+  private void commitCompleted(@NotNull List<? extends VcsException> allExceptions) {
     List<VcsException> errors = collectErrors(allExceptions);
     boolean noErrors = errors.isEmpty();
     boolean noWarnings = allExceptions.isEmpty();
@@ -442,7 +446,7 @@ public class CommitHelper {
   @CalledInAwt
   public static void moveToFailedList(@NotNull ChangeList changeList,
                                       @NotNull String commitMessage,
-                                      @NotNull List<Change> failedChanges,
+                                      @NotNull List<? extends Change> failedChanges,
                                       @NotNull String newChangelistName,
                                       @NotNull Project project) {
     // No need to move since we'll get exactly the same changelist.
@@ -485,7 +489,7 @@ public class CommitHelper {
   }
 
   @NotNull
-  static List<VcsException> collectErrors(@NotNull List<VcsException> exceptions) {
+  static List<VcsException> collectErrors(@NotNull List<? extends VcsException> exceptions) {
     return filter(exceptions, e -> !e.isWarning());
   }
 }

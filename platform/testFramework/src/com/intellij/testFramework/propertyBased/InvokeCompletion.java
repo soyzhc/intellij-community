@@ -28,6 +28,7 @@ import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
@@ -109,7 +110,7 @@ public class InvokeCompletion extends ActionOnFile {
 
     String expectedVariant = leaf == null || leaf instanceof PsiPlainText ? null : myPolicy.getExpectedVariant(editor, file, leaf, ref);
     boolean prefixEqualsExpected = isPrefixEqualToExpectedVariant(caretOffset, leaf, ref, expectedVariant);
-    boolean shouldCheckDuplicates = myPolicy.shouldCheckDuplicates(editor, file, leaf);
+    boolean shouldCheckDuplicates = myPolicy.shouldCheckDuplicates(editor, file, file.findElementAt(caretOffset));
     long stampBefore = getDocument().getModificationStamp();
 
     new CodeCompletionHandlerBase(CompletionType.BASIC).invokeCompletion(getProject(), editor);
@@ -130,7 +131,9 @@ public class InvokeCompletion extends ActionOnFile {
 
     List<LookupElement> items = lookup.getItems();
     if (expectedVariant != null) {
-      LookupElement sameItem = ContainerUtil.find(items, e -> e.getAllLookupStrings().contains(expectedVariant));
+      LookupElement sameItem = ContainerUtil.find(items, e ->
+        e.getAllLookupStrings().stream().anyMatch(
+          s -> Comparing.equal(s, expectedVariant, e.isCaseSensitive())));
       TestCase.assertNotNull("No variant '" + expectedVariant + "' among " + items + notFound, sameItem);
     }
 

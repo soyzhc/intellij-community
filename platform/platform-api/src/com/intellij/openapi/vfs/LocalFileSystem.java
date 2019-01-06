@@ -17,7 +17,6 @@ public abstract class LocalFileSystem extends NewVirtualFileSystem {
   @NonNls public static final String PROTOCOL = StandardFileSystems.FILE_PROTOCOL;
   @NonNls public static final String PROTOCOL_PREFIX = StandardFileSystems.FILE_PROTOCOL_PREFIX;
 
-  @SuppressWarnings("UtilityClassWithoutPrivateConstructor")
   private static class LocalFileSystemHolder {
     private static final LocalFileSystem ourInstance = (LocalFileSystem)VirtualFileManager.getInstance().getFileSystem(PROTOCOL);
   }
@@ -38,9 +37,9 @@ public abstract class LocalFileSystem extends NewVirtualFileSystem {
    * @param files files to refresh.
    * @since 6.0
    */
-  public abstract void refreshIoFiles(@NotNull Iterable<File> files);
+  public abstract void refreshIoFiles(@NotNull Iterable<? extends File> files);
 
-  public abstract void refreshIoFiles(@NotNull Iterable<File> files, boolean async, boolean recursive, @Nullable Runnable onFinish);
+  public abstract void refreshIoFiles(@NotNull Iterable<? extends File> files, boolean async, boolean recursive, @Nullable Runnable onFinish);
 
   /**
    * Performs a non-recursive synchronous refresh of specified files.
@@ -48,9 +47,9 @@ public abstract class LocalFileSystem extends NewVirtualFileSystem {
    * @param files files to refresh.
    * @since 6.0
    */
-  public abstract void refreshFiles(@NotNull Iterable<VirtualFile> files);
+  public abstract void refreshFiles(@NotNull Iterable<? extends VirtualFile> files);
 
-  public abstract void refreshFiles(@NotNull Iterable<VirtualFile> files, boolean async, boolean recursive, @Nullable Runnable onFinish);
+  public abstract void refreshFiles(@NotNull Iterable<? extends VirtualFile> files, boolean async, boolean recursive, @Nullable Runnable onFinish);
 
   public interface WatchRequest {
     @NotNull
@@ -84,7 +83,7 @@ public abstract class LocalFileSystem extends NewVirtualFileSystem {
     }
   }
 
-  public void removeWatchedRoots(@NotNull Collection<WatchRequest> watchRequests) {
+  public void removeWatchedRoots(@NotNull Collection<? extends WatchRequest> watchRequests) {
     if (!watchRequests.isEmpty()) {
       replaceWatchedRoots(watchRequests, null, null);
     }
@@ -99,7 +98,7 @@ public abstract class LocalFileSystem extends NewVirtualFileSystem {
   }
 
   @NotNull
-  public abstract Set<WatchRequest> replaceWatchedRoots(@NotNull Collection<WatchRequest> watchRequests,
+  public abstract Set<WatchRequest> replaceWatchedRoots(@NotNull Collection<? extends WatchRequest> watchRequests,
                                                         @Nullable Collection<String> recursiveRoots,
                                                         @Nullable Collection<String> flatRoots);
 

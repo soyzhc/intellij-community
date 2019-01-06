@@ -6,10 +6,7 @@ class X {
           if (r) {
               return;
           }
-
-          System.out.println("d");
-      } else {
-          System.out.println("d");
       }
+      System.out.println("d");
   }
 }

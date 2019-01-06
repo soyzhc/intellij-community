@@ -50,7 +50,6 @@ import java.util.*;
  * @deprecated to be removed in 2018.1
  *
  * @author Vladislav.Soroka
- * @since 11/5/13
  */
 @Deprecated
 public class ModuleExtendedModelBuilderImpl implements ModelBuilderService {
@@ -114,7 +113,7 @@ public class ModuleExtendedModelBuilderImpl implements ModelBuilderService {
         if (test.hasProperty(TEST_SRC_DIRS_PROPERTY)) {
           Object testSrcDirs = test.property(TEST_SRC_DIRS_PROPERTY);
           if (testSrcDirs instanceof Iterable) {
-            for (Object dir : Iterable.class.cast(testSrcDirs)) {
+            for (Object dir : (Iterable)testSrcDirs) {
               addFilePath(directorySet.getTestDirectories(), dir);
             }
           }

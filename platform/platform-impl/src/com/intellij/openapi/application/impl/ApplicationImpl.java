@@ -38,7 +38,6 @@ import com.intellij.openapi.progress.util.ProgressWindow;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
-import com.intellij.openapi.project.impl.ProjectManagerImpl;
 import com.intellij.openapi.ui.DialogEarthquakeShaker;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.MessageDialogBuilder;
@@ -113,7 +112,6 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   private final Disposable myLastDisposable = Disposer.newDisposable(); // will be disposed last
 
   private final AtomicBoolean mySaveSettingsIsInProgress = new AtomicBoolean(false);
-  @SuppressWarnings("UseOfArchaicSystemPropertyAccessors")
   private static final int ourDumpThreadsOnLongWriteActionWaiting = Integer.getInteger("dump.threads.on.long.write.action.waiting", 0);
 
   private final ExecutorService ourThreadExecutorsService = PooledThreadExecutor.INSTANCE;
@@ -133,8 +131,9 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
     getPicoContainer().registerComponentInstance(Application.class, this);
     getPicoContainer().registerComponentInstance(TransactionGuard.class.getName(), myTransactionGuard);
 
-    //noinspection AssignmentToStaticFieldFromInstanceMethod
-    BundleBase.assertKeyIsFound = IconLoader.STRICT = isUnitTestMode || isInternal;
+    boolean strictMode = isUnitTestMode || isInternal;
+    BundleBase.assertOnMissedKeys(strictMode);
+    IconLoader.setStrictGlobally(strictMode);
 
     AWTExceptionHandler.register(); // do not crash AWT on exceptions
 
@@ -231,7 +230,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   }
 
   private boolean disposeSelf(final boolean checkCanCloseProject) {
-    final ProjectManagerImpl manager = (ProjectManagerImpl)ProjectManagerEx.getInstanceEx();
+    final ProjectManagerEx manager = ProjectManagerEx.getInstanceEx();
     if (manager == null) {
       saveSettings(true);
     }
@@ -811,9 +810,10 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
 
       lifecycleListener.appWillBeClosed(restart);
 
-      FUSApplicationUsageTrigger.getInstance().trigger(AppLifecycleUsageTriggerCollector.class, "ide.close");
+      FUSApplicationUsageTrigger usageTrigger = FUSApplicationUsageTrigger.getInstance();
+      usageTrigger.trigger(AppLifecycleUsageTriggerCollector.class, "ide.close");
       if (restart) {
-        FUSApplicationUsageTrigger.getInstance().trigger(AppLifecycleUsageTriggerCollector.class, "ide.close.restart");
+        usageTrigger.trigger(AppLifecycleUsageTriggerCollector.class, "ide.close.restart");
       }
       FeatureUsageLogger.INSTANCE.log("lifecycle", "app.closed", Collections.singletonMap("restart", restart));
 
@@ -941,7 +941,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
 
   @Override
   public void runReadAction(@NotNull final Runnable action) {
-    if (isReadAccessAllowed()) {
+    if (checkReadAccessAllowedAndNoPendingWrites()) {
       action.run();
     }
     else {
@@ -957,7 +957,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
 
   @Override
   public <T> T runReadAction(@NotNull final Computable<T> computation) {
-    if (isReadAccessAllowed()) {
+    if (checkReadAccessAllowedAndNoPendingWrites()) {
       return computation.compute();
     }
     startRead();
@@ -971,7 +971,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
 
   @Override
   public <T, E extends Throwable> T runReadAction(@NotNull ThrowableComputable<T, E> computation) throws E {
-    if (isReadAccessAllowed()) {
+    if (checkReadAccessAllowedAndNoPendingWrites()) {
       return computation.compute();
     }
     startRead();
@@ -1108,10 +1108,11 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
 
   @Override
   public boolean isReadAccessAllowed() {
-    if (isDispatchThread()) {
-      return myWriteActionThread == null; // no reading from EDT during background write action
-    }
-    return myLock.isReadLockedByThisThread() || myWriteActionThread == Thread.currentThread();
+    return isDispatchThread() || myLock.isReadLockedByThisThread();
+  }
+
+  private boolean checkReadAccessAllowedAndNoPendingWrites() throws ApplicationUtil.CannotRunReadActionException {
+    return isDispatchThread() || myLock.checkReadLockedByThisThreadAndNoPendingWrites();
   }
 
   @Override
@@ -1161,7 +1162,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   @Override
   public boolean tryRunReadAction(@NotNull Runnable action) {
     //if we are inside read action, do not try to acquire read lock again since it will deadlock if there is a pending writeAction
-    if (isReadAccessAllowed()) {
+    if (checkReadAccessAllowedAndNoPendingWrites()) {
       action.run();
     }
     else {
@@ -1194,7 +1195,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   @Override
   public AccessToken acquireReadActionLock() {
     // if we are inside read action, do not try to acquire read lock again since it will deadlock if there is a pending writeAction
-    return isReadAccessAllowed() ? AccessToken.EMPTY_ACCESS_TOKEN : new ReadAccessToken();
+    return checkReadAccessAllowedAndNoPendingWrites() ? AccessToken.EMPTY_ACCESS_TOKEN : new ReadAccessToken();
   }
 
   private volatile boolean myWriteActionPending;
@@ -1223,7 +1224,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
       ActivityTracker.getInstance().inc();
       fireBeforeWriteActionStart(clazz);
 
-      if (!myLock.isWriteLocked() && !myLock.tryWriteLock()) {
+      if (!myLock.isWriteLocked()) {
         Future<?> reportSlowWrite = ourDumpThreadsOnLongWriteActionWaiting <= 0 ? null :
                                     JobScheduler.getScheduler()
                                       .scheduleWithFixedDelay(() -> PerformanceWatcher.getInstance().dumpThreads("waiting", true),
@@ -1408,7 +1409,6 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   private void fireApplicationExiting() {
     myDispatcher.getMulticaster().applicationExiting();
   }
-
   private void fireBeforeWriteActionStart(@NotNull Class action) {
     myDispatcher.getMulticaster().beforeWriteActionStart(action);
   }

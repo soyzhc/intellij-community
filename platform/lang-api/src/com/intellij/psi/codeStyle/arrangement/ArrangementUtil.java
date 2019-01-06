@@ -26,7 +26,6 @@ import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.Mo
 
 /**
  * @author Denis Zhdanov
- * @since 7/17/12 11:24 AM
  */
 public class ArrangementUtil {
   private static final Logger LOG = Logger.getInstance(ArrangementUtil.class);
@@ -40,7 +39,7 @@ public class ArrangementUtil {
   public static ArrangementSettings readExternal(@NotNull Element element, @NotNull Language language) {
     ArrangementSettingsSerializer serializer = getSerializer(language);
     if (serializer == null) {
-      LOG.error("Can't find serializer for language: " + language.getDisplayName() + "(" + language.getID() + ")");
+      LOG.warn("Can't find serializer for language: " + language.getDisplayName() + "(" + language.getID() + ")");
       return null;
     }
 

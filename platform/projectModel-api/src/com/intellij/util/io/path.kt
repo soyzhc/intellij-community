@@ -44,6 +44,7 @@ fun Path.outputStream(): OutputStream {
   return Files.newOutputStream(this)
 }
 
+@Throws(IOException::class)
 fun Path.inputStream(): InputStream = Files.newInputStream(this)
 
 fun Path.inputStreamIfExists(): InputStream? {
@@ -170,21 +171,16 @@ fun Path.write(data: ByteArray, offset: Int = 0, size: Int = data.size): Path {
   return this
 }
 
-/** @deprecated use [SafeWriteRequestor.shallUseSafeStream] along with [SafeFileOutputStream] (to be removed in IDEA 2019) */
 fun Path.writeSafe(data: ByteArray, offset: Int = 0, size: Int = data.size): Path {
-  val tempFile = parent.resolve("${fileName}.${UUID.randomUUID()}.tmp")
-  tempFile.write(data, offset, size)
-  try {
-    Files.move(tempFile, this, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-  }
-  catch (e: IOException) {
-    LOG.warn(e)
-    FileUtil.rename(tempFile.toFile(), this.toFile())
+  writeSafe {
+    it.write(data, offset, size)
   }
   return this
 }
 
-/** @deprecated use [SafeWriteRequestor.shallUseSafeStream] along with [SafeFileOutputStream] (to be removed in IDEA 2019) */
+/**
+ * Consider using [SafeWriteRequestor.shallUseSafeStream] along with [SafeFileOutputStream]
+ */
 fun Path.writeSafe(outConsumer: (OutputStream) -> Unit): Path {
   val tempFile = parent.resolve("${fileName}.${UUID.randomUUID()}.tmp")
   tempFile.outputStream().use(outConsumer)

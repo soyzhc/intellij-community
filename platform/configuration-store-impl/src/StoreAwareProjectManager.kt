@@ -3,6 +3,7 @@ package com.intellij.configurationStore
 
 import com.intellij.configurationStore.schemeManager.SchemeChangeEvent
 import com.intellij.configurationStore.schemeManager.SchemeFileTracker
+import com.intellij.configurationStore.schemeManager.useSchemeLoader
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.ModalityState
@@ -18,6 +19,7 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectBundle
+import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.project.impl.ProjectManagerImpl
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Key
@@ -26,11 +28,13 @@ import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.ex.VirtualFileManagerAdapter
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
+import com.intellij.util.ExceptionUtil
 import com.intellij.util.SingleAlarm
 import com.intellij.util.containers.MultiMap
 import gnu.trove.THashSet
 import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 private val CHANGED_FILES_KEY = Key.create<MultiMap<ComponentStoreImpl, StateStorage>>("CHANGED_FILES_KEY")
 private val CHANGED_SCHEMES_KEY = Key.create<MultiMap<SchemeFileTracker, SchemeChangeEvent>>("CHANGED_SCHEMES_KEY")
@@ -40,6 +44,7 @@ private val CHANGED_SCHEMES_KEY = Key.create<MultiMap<SchemeFileTracker, SchemeC
  */
 class StoreAwareProjectManager(virtualFileManager: VirtualFileManager, progressManager: ProgressManager) : ProjectManagerImpl(progressManager) {
   private val reloadBlockCount = AtomicInteger()
+  private val blockStackTrace = AtomicReference<String?>()
   private val changedApplicationFiles = LinkedHashSet<StateStorage>()
 
   private val restartApplicationOrReloadProjectTask = Runnable {
@@ -70,9 +75,11 @@ class StoreAwareProjectManager(virtualFileManager: VirtualFileManager, progressM
       runBatchUpdate(project.messageBus) {
         // reload schemes first because project file can refer to scheme (e.g. inspection profile)
         if (changedSchemes != null) {
-          for ((tracker, files) in changedSchemes.entrySet()) {
-            LOG.runAndLogException {
-              tracker.reload(files)
+          useSchemeLoader { schemeLoaderRef ->
+            for ((tracker, files) in changedSchemes.entrySet()) {
+              LOG.runAndLogException {
+                tracker.reload(files, schemeLoaderRef)
+              }
             }
           }
         }
@@ -107,7 +114,7 @@ class StoreAwareProjectManager(virtualFileManager: VirtualFileManager, progressM
           return
         }
 
-        if (event.requestor is StateStorage.SaveSession || event.requestor is StateStorage || event.requestor is ProjectManagerImpl) {
+        if (event.requestor is StateStorage.SaveSession || event.requestor is StateStorage || event.requestor is ProjectManagerEx) {
           return
         }
 
@@ -141,12 +148,23 @@ class StoreAwareProjectManager(virtualFileManager: VirtualFileManager, progressM
   }
 
   override fun blockReloadingProjectOnExternalChanges() {
-    reloadBlockCount.incrementAndGet()
+    if (reloadBlockCount.getAndIncrement() == 0) {
+      blockStackTrace.set(ExceptionUtil.currentStackTrace())
+    }
   }
 
   override fun unblockReloadingProjectOnExternalChanges() {
-    assert(reloadBlockCount.get() > 0)
-    if (reloadBlockCount.decrementAndGet() == 0 && changedFilesAlarm.isEmpty) {
+    val counter = reloadBlockCount.get()
+    if (counter <= 0) {
+      LOG.error("Block counter $counter must be > 0, first block stack trace: ${blockStackTrace.get()}")
+    }
+
+    if (reloadBlockCount.decrementAndGet() != 0) {
+      return
+    }
+
+    blockStackTrace.set(null)
+    if (changedFilesAlarm.isEmpty) {
       if (ApplicationManager.getApplication().isUnitTestMode) {
         // todo fix test to handle invokeLater
         changedFilesAlarm.request(true)

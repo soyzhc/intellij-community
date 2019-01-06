@@ -164,15 +164,15 @@ def method(Box<A> box) {
 '''
   }
 
-  void testPerformanceLike() {
+  void testOverloadedInClosure() {
     testHighlighting '''
 def <T> void foo(T t, Closure cl) {}
 
-foo(1) { println it }
+foo(1) { println <warning descr="Method call is ambiguous">it</warning> }
 '''
   }
 
-  void testPerformanceLikeCS() {
+  void testOverloadedInClosureCS() {
     testHighlighting '''
 import groovy.transform.CompileStatic
 
@@ -181,14 +181,14 @@ def <T> void foo(T t, Closure<T> cl) {}
 @CompileStatic
 def m() {
   foo(1) { 
-    println it 
+    println <warning descr="Method call is ambiguous">it</warning> 
     1
   }
 }
 '''
   }
 
-  void testPerformanceLikeCS2() {
+  void testOverloadedInClosureCS2() {
     myFixture.enableInspections(new MissingReturnInspection())
 
     testHighlighting '''
@@ -205,8 +205,7 @@ def m() {
   }
 
 
-  void testPerformanceLikeCS3() {
-
+  void testOverloadedInClosureCS3() {
     testHighlighting '''
 import groovy.transform.CompileStatic
 import groovy.transform.stc.ClosureParams
@@ -501,24 +500,76 @@ def m() {
 '''
   }
 
-//TODO: IDEA-194192
-  void '_test call without reference with generics'() {
+  void 'test SOE on map literal'() {
     testHighlighting '''
-import groovy.transform.CompileStatic
+static method(a) {}
+static method(a, b) {}
+def q 
 
-class E {
-    def <K,V> Map<K, V> call(Map<K, V> m) {
-        m
+method(
+        foo: {
+            q.v = []
+        },
+        bar: 42
+)
+
+interface Foo {
+     getProp()
+}
+
+class A {
+    Foo foo
+}
+
+new A(foo: {
+    prop
+}) 
+'''
+  }
+
+  void 'test IDEA-198057-1'() {
+    testHighlighting '''
+Optional<BigDecimal> foo(Optional<String> string) {
+    string.flatMap {
+        try {
+            return Optional.of(new BigDecimal(it))
+        } catch (Exception ignored) {
+            return Optional.<BigDecimal> empty()
+        }
     }
-    E bar() {null}
+}
+'''
+  }
+
+  void 'test IDEA-198057-2'() {
+    testHighlighting '''
+Optional<BigDecimal> foo(Optional<String> string) {
+  string.flatMap {
+     return Optional.<BigDecimal> empty()    
+  }
+}
+'''
+  }
+
+  void 'test IDEA-198057-3'() {
+    testHighlighting '''
+void foo() {
+    def o = Optional.<BigDecimal> empty()
+    Optional<BigDecimal>  d = o  
+}
+'''
+  }
+
+  void 'test call without reference with generics'() {
+    testHighlighting '''\
+class E {
+    def <K,V> Map<K, V> call(Map<K, V> m) { m }
 }
 
-static <K,V> Map<K, V> getMap() {
-  return new HashMap<K,V>()
-}
+static <K,V> Map<K, V> getMap() { null }
 
-@CompileStatic
-def com() {
+@groovy.transform.CompileStatic
+def usage() {
     Map<String, Integer> correct = new E()(getMap().withDefault({ 0 }))
 }
 '''

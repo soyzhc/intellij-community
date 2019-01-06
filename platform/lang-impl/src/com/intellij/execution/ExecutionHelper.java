@@ -208,12 +208,14 @@ public class ExecutionHelper {
   }
 
   public static Collection<RunContentDescriptor> findRunningConsoleByTitle(final Project project,
-                                                                           @NotNull final NotNullFunction<String, Boolean> titleMatcher) {
+                                                                           @NotNull final NotNullFunction<? super String, Boolean> titleMatcher) {
     return findRunningConsole(project, selectedContent -> titleMatcher.fun(selectedContent.getDisplayName()));
   }
 
   public static Collection<RunContentDescriptor> findRunningConsole(@NotNull Project project,
-                                                                    @NotNull NotNullFunction<RunContentDescriptor, Boolean> descriptorMatcher) {
+                                                                    @NotNull NotNullFunction<? super RunContentDescriptor, Boolean> descriptorMatcher) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+
     RunContentManager contentManager = ExecutionManager.getInstance(project).getContentManager();
     final RunContentDescriptor selectedContent = contentManager.getSelectedContent();
     if (selectedContent != null) {
@@ -235,7 +237,7 @@ public class ExecutionHelper {
   }
 
   public static List<RunContentDescriptor> collectConsolesByDisplayName(@NotNull Project project,
-                                                                        @NotNull NotNullFunction<String, Boolean> titleMatcher) {
+                                                                        @NotNull NotNullFunction<? super String, Boolean> titleMatcher) {
     List<RunContentDescriptor> result = new SmartList<>();
     for (RunContentDescriptor runContentDescriptor : ExecutionManagerImpl.getAllDescriptors(project)) {
       if (titleMatcher.fun(runContentDescriptor.getDisplayName())) {

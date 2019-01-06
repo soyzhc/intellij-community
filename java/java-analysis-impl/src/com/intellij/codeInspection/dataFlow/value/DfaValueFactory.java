@@ -16,6 +16,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FList;
 import com.intellij.util.containers.FactoryMap;
 import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -50,6 +51,7 @@ public class DfaValueFactory {
     myRelationFactory = new DfaRelationValue.Factory(this);
     myExpressionFactory = new DfaExpressionFactory(this);
     myFactFactory = new DfaFactMapValue.Factory(this);
+    mySumFactory = new DfaSumValue.Factory(this);
   }
 
   public boolean canTrustFieldInitializer(PsiField field) {
@@ -129,13 +131,14 @@ public class DfaValueFactory {
   }
 
   @Nullable
+  @Contract("null -> null")
   public DfaValue createValue(PsiExpression psiExpression) {
     return myExpressionFactory.getExpressionDfaValue(psiExpression);
   }
 
   @NotNull
   public DfaConstValue getInt(int value) {
-    return getConstFactory().createFromValue(value, PsiType.INT, null);
+    return getConstFactory().createFromValue(value, PsiType.INT);
   }
 
   @Nullable
@@ -238,6 +241,7 @@ public class DfaValueFactory {
   private final DfaVariableValue.Factory myVarFactory;
   private final DfaConstValue.Factory myConstFactory;
   private final DfaBoxedValue.Factory myBoxedFactory;
+  private final DfaSumValue.Factory mySumFactory;
   private final DfaRelationValue.Factory myRelationFactory;
   private final DfaExpressionFactory myExpressionFactory;
   private final DfaFactMapValue.Factory myFactFactory;
@@ -270,6 +274,11 @@ public class DfaValueFactory {
   public DfaExpressionFactory getExpressionFactory() { return myExpressionFactory;}
 
   @NotNull
+  public DfaSumValue.Factory getSumFactory() {
+    return mySumFactory;
+  }
+
+  @NotNull
   public DfaValue createCommonValue(@NotNull PsiExpression[] expressions, PsiType targetType) {
     DfaValue loopElement = null;
     for (PsiExpression expression : expressions) {
@@ -277,7 +286,7 @@ public class DfaValueFactory {
       if (expressionValue == null) {
         expressionValue = createTypeValue(expression.getType(), NullabilityUtil.getExpressionNullability(expression));
       }
-      loopElement = loopElement == null ? expressionValue : loopElement.union(expressionValue);
+      loopElement = loopElement == null ? expressionValue : loopElement.unite(expressionValue);
       if (loopElement == DfaUnknownValue.getInstance()) break;
     }
     return loopElement == null ? DfaUnknownValue.getInstance() : DfaUtil.boxUnbox(loopElement, targetType);

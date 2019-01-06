@@ -2,6 +2,7 @@
 package com.intellij.internal.statistic.service.fus.collectors;
 
 import com.intellij.internal.statistic.beans.UsageDescriptor;
+import com.intellij.internal.statistic.eventLog.EventLogExternalSettingsService;
 import com.intellij.internal.statistic.service.fus.FUStatisticsSettingsService;
 import com.intellij.internal.statistic.service.fus.beans.CollectorGroupDescriptor;
 import com.intellij.internal.statistic.service.fus.beans.FSContent;
@@ -46,9 +47,13 @@ public class FUStatisticsPersistence {
    * Collected data are persisted in system cache. One file for one project session. The session is pair: project + IJ build number
    */
   public static String persistProjectUsages(@NotNull Project project) {
-    Set<String> groups = FUStatisticsSettingsService.getInstance().getApprovedGroups();
+    recordProjectUsages(project);
+
+    final FUStatisticsSettingsService settingsService = FUStatisticsSettingsService.getInstance();
+    if (!settingsService.isTransmissionPermitted()) return null;
+    Set<String> groups = settingsService.getApprovedGroups();
     if (groups.isEmpty() && !ApplicationManagerEx.getApplicationEx().isInternal()) return null;
-    FUStatisticsAggregator aggregator = FUStatisticsAggregator.create();
+    FUStatisticsAggregator aggregator = FUStatisticsAggregator.create(false);
     Map<CollectorGroupDescriptor, Set<UsageDescriptor>> usages = aggregator.getProjectUsages(project, groups);
     if (usages.isEmpty()) return null;
 
@@ -60,10 +65,17 @@ public class FUStatisticsPersistence {
     String gsonContent = content.asJsonString();
 
     String fileName = getFileName(fuSession);
-    File directory = getStatisticsSystemCacheDirectory();
+    File directory = getStatisticsCacheDirectory();
 
     persistToFile(gsonContent, new File(directory, "/" + fileName));
     return fileName;
+  }
+
+  private static void recordProjectUsages(@NotNull Project project) {
+    final Set<String> groups = EventLogExternalSettingsService.getInstance().getApprovedGroups();
+    if (!groups.isEmpty()  || ApplicationManagerEx.getApplicationEx().isInternal()) {
+      FUStatisticsAggregator.create(true).getProjectUsages(project, groups);
+    }
   }
 
   /**
@@ -72,7 +84,7 @@ public class FUStatisticsPersistence {
   @NotNull
   public static Set<FSSession> getPersistedSessions() {
     Set<FSSession> persistedSessions = ContainerUtil.newHashSet();
-    File statisticsCacheDir = getStatisticsSystemCacheDirectory();
+    File statisticsCacheDir = getStatisticsCacheDirectory();
     if (statisticsCacheDir != null) {
       File[] children = statisticsCacheDir.listFiles();
       if (children != null) {
@@ -100,7 +112,7 @@ public class FUStatisticsPersistence {
    * This method cleans obsolete statistics persisted data (files).
    */
   public static void clearSessionPersistence(long dataTime) {
-    File statisticsCacheDir = getStatisticsSystemCacheDirectory();
+    File statisticsCacheDir = getStatisticsCacheDirectory();
     if (statisticsCacheDir != null) {
       File[] children = statisticsCacheDir.listFiles();
       if (children != null) {
@@ -126,7 +138,8 @@ public class FUStatisticsPersistence {
     if (legacyStateFile.exists()) {
       try {
         legacyStateFile.delete();
-      } catch (Exception e) {
+      }
+      catch (Exception e) {
         LOG.info(e);
       }
     }
@@ -138,7 +151,12 @@ public class FUStatisticsPersistence {
   }
 
   @Nullable
-  public static File getStatisticsSystemCacheDirectory() {
+  public static File getStatisticsCacheDirectory() {
+    return Paths.get(PathManager.getConfigPath()).resolve(FUS_CACHE_PATH + "/").toFile();
+  }
+
+  @Nullable
+  public static File getStatisticsLegacyCacheDirectory() {
     return Paths.get(PathManager.getSystemPath()).resolve(FUS_CACHE_PATH).toFile();
   }
 
@@ -165,13 +183,15 @@ public class FUStatisticsPersistence {
     persistToFile(sentContent, getSentDataFile());
   }
 
-  public static void persistToFile(@NotNull String sentContent, File file) {
+  public static boolean persistToFile(@NotNull String sentContent, File file) {
     try {
       FileUtil.writeToFile(file, sentContent);
     }
     catch (IOException e) {
       LOG.info(e);
+      return false;
     }
+    return true;
   }
 
   @NotNull
@@ -186,7 +206,12 @@ public class FUStatisticsPersistence {
 
   @NotNull
   private static File getFileInStatisticsCacheDirectory(@NotNull String fileName) {
-    return new File(getStatisticsSystemCacheDirectory(), "/" + fileName);
+    return new File(getStatisticsCacheDirectory(), "/" + fileName);
+  }
+
+  @NotNull
+  private static File getFileInLegacyStatisticsCacheDirectory(@NotNull String fileName) {
+    return new File(getStatisticsLegacyCacheDirectory(), "/" + fileName);
   }
 
   @NotNull
@@ -206,12 +231,35 @@ public class FUStatisticsPersistence {
 
   @Nullable
   private static String getStateContent(@NotNull String fileName) {
-    File statisticsCacheDir = getStatisticsSystemCacheDirectory();
+    File statisticsCacheDir = getStatisticsCacheDirectory();
     if (statisticsCacheDir != null) {
       File stateFile = getFileInStatisticsCacheDirectory(fileName);
       if (stateFile.exists()) {
         try {
           return FileUtil.loadFile(stateFile);
+        }
+        catch (IOException e) {
+          LOG.info(e);
+        }
+      }
+    }
+    return getLegacyStateContent(fileName);
+  }
+
+  @Nullable
+  private static String getLegacyStateContent(@NotNull String fileName) {
+    File legacyCacheDirectory = getStatisticsLegacyCacheDirectory();
+    if (legacyCacheDirectory != null) {
+      // we changed statistics cache path
+      // from "../system/FUS_CACHE_PATH/fus-state.data" to "../config/FUS_CACHE_PATH/fus-state.data"
+      File legacyStateFile = getFileInLegacyStatisticsCacheDirectory(fileName);
+      if (legacyStateFile.exists()) {
+        try {
+          String legacyState = FileUtil.loadFile(legacyStateFile);  // load
+          if (persistToFile(legacyState, getFileInStatisticsCacheDirectory(fileName))
+              && legacyStateFile.delete()) {
+            return legacyState;
+          }
         }
         catch (IOException e) {
           LOG.info(e);

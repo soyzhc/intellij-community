@@ -58,7 +58,9 @@ class UnusedParametersInspection extends GlobalJavaBatchInspectionTool {
 
       if (refMethod.isEntry()) return null;
 
-      final PsiElement element = refMethod.getUastElement().getJavaPsi();
+      UDeclaration uMethod = refMethod.getUastElement();
+      if (uMethod == null) return null;
+      final PsiElement element = uMethod.getJavaPsi();
       if (element != null && EntryPointsManager.getInstance(manager.getProject()).isEntryPoint(element)) return null;
 
       final List<ProblemDescriptor> result = new ArrayList<>();
@@ -118,7 +120,7 @@ class UnusedParametersInspection extends GlobalJavaBatchInspectionTool {
                                           @Override
                                           public boolean execute(PsiReference element) {
                                             refParameter.parameterReferenced(false);
-                                            processor.ignoreElement(refMethod);
+                                            processor.ignoreElement(refParameter);
                                             found[0] = true;
                                             return false;
                                           }

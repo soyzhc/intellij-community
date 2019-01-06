@@ -10,15 +10,18 @@ import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.testFramework.PlatformTestCase;
 import org.jdom.JDOMException;
+import org.jetbrains.annotations.NotNull;
 import org.junit.Assert;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import static com.intellij.openapi.project.impl.ProjectOpeningTest.closeProject;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 /**
  * @author Konstantin Bulenkov
@@ -65,24 +68,26 @@ public class RecentProjectsTest extends PlatformTestCase {
       File path = createTempDir("z1");
       ProjectManagerEx manager = ProjectManagerEx.getInstanceEx();
       project = manager.createProject(null, path.getPath());
-      project.save();
       closeProject(project);
       project = manager.loadAndOpenProject(path.getPath());
       long timestamp = getProjectOpenTimestamp("z1");
-      Thread.sleep(2);
-      Assert.assertTrue("Timestamp for opened project has not been updated", timestamp < getProjectOpenTimestamp("z1"));
+      RecentProjectsManagerBase.getInstanceEx().updateLastProjectPath();
+      // "Timestamp for opened project has not been updated"
+      assertThat(getProjectOpenTimestamp("z1")).isGreaterThan(timestamp);
     }
     finally {
       closeProject(project);
     }
   }
 
-  private static long getProjectOpenTimestamp(String projectName) {
-    List<String> keys = RecentProjectsManagerBase.getInstanceEx().getState()
-      .additionalInfo.keySet().stream()
-      .filter(s -> s.endsWith(projectName))
-      .collect(Collectors.toList());
-    return RecentProjectsManagerBase.getInstanceEx().getState().additionalInfo.get(keys.get(0)).projectOpenTimestamp;
+  private static long getProjectOpenTimestamp(@SuppressWarnings("SameParameterValue") @NotNull String projectName) {
+    Map<String, RecentProjectsManagerBase.RecentProjectMetaInfo> additionalInfo = RecentProjectsManagerBase.getInstanceEx().getState().additionalInfo;
+    for (String s : additionalInfo.keySet()) {
+      if (s.endsWith(projectName)) {
+        return additionalInfo.get(s).projectOpenTimestamp;
+      }
+    }
+    return -1;
   }
 
   private static void doReopenCloseAndCheck(String projectPath, String... results) throws IOException, JDOMException {
@@ -102,9 +107,9 @@ public class RecentProjectsTest extends PlatformTestCase {
     RecentProjectsManagerBase.State state = ((RecentProjectsManagerBase)RecentProjectsManager.getInstance()).getState();
     List<String> projects = state.recentPaths.stream()
       .map(s -> new File(s).getName().replace("idea_test_", ""))
-      .filter(s -> recentProjects.contains(s))
+      .filter(recentProjects::contains)
       .collect(Collectors.toList());
-    Assert.assertEquals(Arrays.toString(recents), Arrays.toString(projects.toArray()));
+    Assert.assertEquals(recentProjects, projects);
   }
 
   private static void checkGroups(String... groups) {
@@ -112,7 +117,7 @@ public class RecentProjectsTest extends PlatformTestCase {
       .filter(a -> a instanceof ProjectGroupActionGroup)
       .map(a -> ((ProjectGroupActionGroup)a).getGroup().getName())
       .collect(Collectors.toList());
-    Assert.assertEquals(Arrays.toString(groups), Arrays.toString(recentGroups.toArray()));
+    Assert.assertEquals(Arrays.asList(groups), recentGroups);
   }
 
   private String createAndOpenProject(String name) throws IOException, JDOMException {

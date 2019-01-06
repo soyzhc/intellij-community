@@ -13,7 +13,7 @@ import com.intellij.refactoring.listeners.RefactoringElementListener;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public abstract class RunConfigurationExtension extends RunConfigurationExtensionBase<RunConfigurationBase>{
+public abstract class RunConfigurationExtension extends RunConfigurationExtensionBase<RunConfigurationBase<?>>{
   public static final ExtensionPointName<RunConfigurationExtension> EP_NAME =
     new ExtensionPointName<>("com.intellij.runConfigurationExtension");
 
@@ -27,7 +27,7 @@ public abstract class RunConfigurationExtension extends RunConfigurationExtensio
                                   @NotNull String runnerId)  throws ExecutionException {}
 
   @Override
-  protected boolean isEnabledFor(@NotNull RunConfigurationBase applicableConfiguration, @Nullable RunnerSettings runnerSettings) {
+  public boolean isEnabledFor(@NotNull RunConfigurationBase applicableConfiguration, @Nullable RunnerSettings runnerSettings) {
     return true;
   }
 

@@ -1,7 +1,7 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.streamMigration;
 
-import com.intellij.codeInspection.util.OptionalUtil;
+import com.intellij.codeInspection.util.OptionalRefactoringUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -42,7 +42,11 @@ class FindFirstMigration extends BaseStreamApiMigration {
       PsiStatement[] statements = tb.getStatements();
       if (statements.length != 2) return null;
       PsiAssignmentExpression assignment = ExpressionUtils.getAssignment(statements[0]);
-      if (assignment == null) {
+      if (assignment == null ||
+          (tb.getVariable().getType() instanceof PsiPrimitiveType &&
+           !ExpressionUtils.isReferenceTo(assignment.getRExpression(), tb.getVariable()))) {
+        // if we found an assignment with primitive stream variable, then we are not assigning to local variable
+        // (see StreamApiMigrationInspection#findMigrationForBreak), thus it could be handled via ifPresent()
         if(!(statements[0] instanceof PsiExpressionStatement)) return null;
         PsiExpression expression = ((PsiExpressionStatement)statements[0]).getExpression();
         return ct.replaceAndRestoreComments(
@@ -81,7 +85,7 @@ class FindFirstMigration extends BaseStreamApiMigration {
                                                PsiExpression trueExpression, PsiExpression falseExpression,
                                                PsiType targetType) {
     String qualifier = tb.generate(ct) + ".findFirst()";
-    return OptionalUtil.generateOptionalUnwrap(
+    return OptionalRefactoringUtil.generateOptionalUnwrap(
       qualifier, tb.getVariable(), ct.markUnchanged(trueExpression), ct.markUnchanged(falseExpression), targetType, false);
   }
 }

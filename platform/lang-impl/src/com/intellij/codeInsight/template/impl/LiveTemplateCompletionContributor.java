@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template.impl;
 
 import com.intellij.codeInsight.completion.*;
@@ -86,22 +72,27 @@ public class LiveTemplateCompletionContributor extends CompletionContributor {
         int offset = editor.getCaretModel().getOffset();
         final List<TemplateImpl> availableTemplates = TemplateManagerImpl.listApplicableTemplates(file, offset, false);
         final Map<TemplateImpl, String> templates = filterTemplatesByPrefix(availableTemplates, editor, offset, false, false);
+        boolean isAutopopup = parameters.getInvocationCount() == 0;
         if (showAllTemplates()) {
           final AtomicBoolean templatesShown = new AtomicBoolean(false);
           final CompletionResultSet finalResult = result;
+          if (Registry.is("ide.completion.show.live.templates.on.top")) {
+            ensureTemplatesShown(templatesShown, templates, finalResult, isAutopopup);
+          }
+
           result.runRemainingContributors(parameters, completionResult -> {
             finalResult.passResult(completionResult);
             if (completionResult.isStartMatch()) {
-              ensureTemplatesShown(templatesShown, templates, finalResult);
+              ensureTemplatesShown(templatesShown, templates, finalResult, isAutopopup);
             }
           });
 
-          ensureTemplatesShown(templatesShown, templates, result);
+          ensureTemplatesShown(templatesShown, templates, result, isAutopopup);
           showCustomLiveTemplates(parameters, result);
           return;
         }
 
-        if (parameters.getInvocationCount() > 0) return; //only in autopopups for now
+        if (!isAutopopup) return;
 
         // custom templates should handle this situation by itself (return true from hasCompletionItems() and provide lookup element)
         // regular templates won't be shown in this case
@@ -138,12 +129,15 @@ public class LiveTemplateCompletionContributor extends CompletionContributor {
     return false;
   }
 
-  @SuppressWarnings("MethodMayBeStatic") //for Kotlin
+  //for Kotlin
   protected boolean showAllTemplates() {
     return shouldShowAllTemplates();
   }
 
-  private static void ensureTemplatesShown(AtomicBoolean templatesShown, Map<TemplateImpl, String> templates, CompletionResultSet result) {
+  private static void ensureTemplatesShown(AtomicBoolean templatesShown,
+                                           Map<TemplateImpl, String> templates,
+                                           CompletionResultSet result,
+                                           boolean isAutopopup) {
     if (!templatesShown.getAndSet(true)) {
       result.restartCompletionOnPrefixChange(StandardPatterns.string().with(new PatternCondition<String>("type after non-identifier") {
         @Override
@@ -153,6 +147,7 @@ public class LiveTemplateCompletionContributor extends CompletionContributor {
       }));
       for (final Map.Entry<TemplateImpl, String> entry : templates.entrySet()) {
         ProgressManager.checkCanceled();
+        if (isAutopopup && entry.getKey().getShortcutChar() == TemplateSettings.NONE_CHAR) continue;
         result.withPrefixMatcher(result.getPrefixMatcher().cloneWithPrefix(StringUtil.notNullize(entry.getValue())))
           .addElement(new LiveTemplateLookupElementImpl(entry.getKey(), false));
       }
@@ -173,7 +168,7 @@ public class LiveTemplateCompletionContributor extends CompletionContributor {
   @Nullable
   public static TemplateImpl findFullMatchedApplicableTemplate(@NotNull Editor editor,
                                                                int offset,
-                                                               @NotNull Collection<TemplateImpl> availableTemplates) {
+                                                               @NotNull Collection<? extends TemplateImpl> availableTemplates) {
     Map<TemplateImpl, String> templates = filterTemplatesByPrefix(availableTemplates, editor, offset, true, false);
     if (templates.size() == 1) {
       TemplateImpl template = ContainerUtil.getFirstItem(templates.keySet());
